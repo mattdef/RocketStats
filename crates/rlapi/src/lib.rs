@@ -336,6 +336,7 @@ pub struct EosTokenResponse {
     pub selected_account_id: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct EpicAuthClient {
     client: Client,
 }
