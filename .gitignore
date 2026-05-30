@@ -1,4 +1,5 @@
 /target/
+/docs/*
 
 # Editor and OS noise
 .DS_Store
@@ -6,3 +7,71 @@ Thumbs.db
 *.swp
 *.swo
 
+.tmp
+.codex
+.agents
+.agent
+.agent.json
+.agent.json.bak
+
+# Logs
+*.log
+
+# Builds
+build/
+dist/
+*.egg-info/
+*.egg
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.dll
+*.exe
+*.dylib
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
+*.war
+*.class
+*.jar
