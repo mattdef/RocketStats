@@ -10,17 +10,21 @@ pub mod storage;
 
 use auth::AuthService;
 use bridge::{
-    SharedAuthService, SharedOverlayBackendState, get_overlay_state, logout, set_click_through,
-    start_login,
+    SharedAuthService, SharedOverlayBackendState, emit_overlay_state, get_overlay_state, logout,
+    set_click_through, start_login,
 };
 use domain::{AuthState, InitEvent, LocalPlayerSummary};
+use enrichment::{PlayerEnrichment, PsyNetSkillClient};
 use local_player::{LocalPlayerSummaryLoader, PsyNetLocalPlayerClient};
 use logs::parser::parse_init_line;
+use logs::watcher::{LogWatcherConfig, watch_log};
+use match_tracker::MatchTracker;
 use rocketstats_rlapi::{EpicAuthClient, PsyNetClient, PsyNetConfig};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use storage::Storage;
 use tauri::{Emitter, Manager};
+use tokio::sync::mpsc;
 use tracing_subscriber::{EnvFilter, fmt};
 
 pub fn run() {
@@ -52,6 +56,22 @@ pub fn run() {
                 window.set_ignore_cursor_events(false)?;
             }
             app.emit("bridge-ready", bridge::BridgeReady { ready: true })?;
+
+            // --- Log watcher → mpsc channel ---
+            let (log_tx, mut log_rx) = mpsc::channel::<domain::LogEvent>(64);
+            tauri::async_runtime::spawn(async move {
+                let log_path = find_launch_log().unwrap_or_else(|| {
+                    let home = std::env::var_os("HOME")
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| PathBuf::from("."));
+                    home.join(".local/share/RocketStats/Launch.log")
+                });
+                tracing::info!(path = %log_path.display(), "starting log watcher");
+                let config = LogWatcherConfig::new(log_path);
+                if let Err(e) = watch_log(config, log_tx).await {
+                    tracing::warn!(error = %e, "log watcher exited with error");
+                }
+            });
 
             let app_handle = app.handle().clone();
             let overlay = overlay_state.clone();
@@ -102,7 +122,7 @@ pub fn run() {
                 }
                 let diagnostics = diagnostics_rx.borrow().clone();
                 overlay.replace_auth_diagnostics(diagnostics).await;
-                if let Err(error) = bridge::emit_overlay_state(&app_handle, &overlay).await {
+                if let Err(error) = emit_overlay_state(&app_handle, &overlay).await {
                     tracing::warn!("failed to emit initial overlay state: {error}");
                 }
 
@@ -121,7 +141,7 @@ pub fn run() {
                         }
                         sync_local_player_summary(&sync_overlay, &sync_auth, &auth_state).await;
                         if let Err(error) =
-                            bridge::emit_overlay_state(&sync_handle, &sync_overlay).await
+                            emit_overlay_state(&sync_handle, &sync_overlay).await
                         {
                             tracing::warn!("failed to emit auth overlay state: {error}");
                         }
@@ -140,8 +160,7 @@ pub fn run() {
                             .replace_auth_diagnostics(diagnostics)
                             .await;
                         if let Err(error) =
-                            bridge::emit_overlay_state(&diagnostics_handle, &diagnostics_overlay)
-                                .await
+                            emit_overlay_state(&diagnostics_handle, &diagnostics_overlay).await
                         {
                             tracing::warn!("failed to emit diagnostics overlay state: {error}");
                         }
@@ -159,6 +178,65 @@ pub fn run() {
                         Err(e) => tracing::warn!("refresh attempt failed: {e}"),
                     }
                 }
+
+                // --- Orchestration pipeline ---
+                // Receives log events from the watcher, feeds MatchTracker,
+                // enriches detected players when auth is available, and
+                // pushes updates to the overlay state.
+                let mut tracker = MatchTracker::default();
+                let mut enrichment_client: Option<PlayerEnrichment<PsyNetSkillClient>> = None;
+
+                while let Some(event) = log_rx.recv().await {
+                    let session = tracker.apply(event);
+
+                    let players = if let Some(client) = enrichment_client.as_mut() {
+                        let detected: Vec<String> = session
+                            .detected_players
+                            .iter()
+                            .map(|d| d.value.clone())
+                            .collect();
+                        let playlist = session.playlist.unwrap_or(11);
+                        match client.enrich_detected(detected, playlist).await {
+                            Ok(cards) => {
+                                for card in &cards {
+                                    if let Err(e) = storage.upsert_player_card(card).await {
+                                        tracing::warn!(error = %e, "failed to upsert player card");
+                                    }
+                                }
+                                cards
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "player enrichment failed");
+                                Vec::new()
+                            }
+                        }
+                    } else {
+                        let svc = auth.lock().await;
+                        if let Some(rpc) = svc.rpc() {
+                            enrichment_client =
+                                Some(PlayerEnrichment::new(PsyNetSkillClient::new(rpc), None));
+                            tracing::info!("auth rpc available, enrichment client created");
+                        } else {
+                            tracing::debug!("no auth rpc available yet, skipping enrichment");
+                        }
+                        Vec::new()
+                    };
+
+                    {
+                        let mut ms = overlay.match_session.write().await;
+                        *ms = session;
+                    }
+                    {
+                        let mut p = overlay.players.write().await;
+                        *p = players;
+                    }
+
+                    if let Err(error) = emit_overlay_state(&app_handle, &overlay).await {
+                        tracing::warn!("failed to emit orchestration overlay state: {error}");
+                    }
+                }
+
+                tracing::info!("log event channel closed, orchestration pipeline stopped");
             });
 
             Ok(())
