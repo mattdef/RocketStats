@@ -1,6 +1,8 @@
 pub mod domain;
 pub mod error;
+pub mod logs;
 
+use tauri::Manager;
 use tracing_subscriber::{EnvFilter, fmt};
 
 pub fn run() {
