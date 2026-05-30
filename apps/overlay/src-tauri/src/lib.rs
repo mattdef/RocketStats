@@ -1,4 +1,5 @@
 pub mod domain;
+pub mod enrichment;
 pub mod error;
 pub mod logs;
 pub mod match_tracker;
