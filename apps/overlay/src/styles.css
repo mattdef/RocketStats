@@ -1,0 +1,95 @@
+:root {
+  color: #f5f1e8;
+  background: transparent;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.overlay-shell {
+  min-height: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 28px;
+  box-sizing: border-box;
+}
+
+.panel {
+  width: 360px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 22px;
+  padding: 18px 20px;
+  background:
+    linear-gradient(135deg, rgba(18, 22, 28, 0.88), rgba(35, 43, 48, 0.68)),
+    radial-gradient(circle at 20% 10%, rgba(255, 180, 80, 0.22), transparent 36%);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(16px);
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #ffcf75;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+}
+
+.muted {
+  margin: 0;
+  color: rgba(245, 241, 232, 0.74);
+}
+
+.warning {
+  min-height: 20px;
+  margin: 10px 0 0;
+  color: #ffcf75;
+  font-size: 13px;
+}
+
+.players {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.player-card {
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.player-card div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.player-card strong {
+  font-size: 16px;
+}
+
+.player-card span {
+  font-size: 11px;
+  color: rgba(245, 241, 232, 0.58);
+  word-break: break-all;
+}
+
+.player-card p {
+  margin: 8px 0 0;
+  color: rgba(245, 241, 232, 0.82);
+}

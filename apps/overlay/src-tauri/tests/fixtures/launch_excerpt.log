@@ -1,0 +1,6 @@
+[0223.91] Matchmaking: StartMatchmaking at 2026-05-29 23:37:55 in EU9,EU7,EU5,EU3,EU1 for playlists 11 on game server
+[0238.79] DevNet: Welcomed by server (Level: FF_Dusk_P, Game: TAGame.GameInfo_Soccar_TA, GameTags: )
+[0240.99] ScriptLog: MatchGUID: 706DA47C11F15BB7CB1952B6DEE4DFF5
+[0241.08] ScriptLog: Uncached PlatformId for Epic|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|0
+[0241.18] ScriptLog: Uncached PlatformId for Epic|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|0
+[0619.02] XPProgression: SaveData_TA.HandleRewardDropNotification PsyNetService_RewardDropReceived_TA returned Total XP Earned = 5160.0000, in match with ID = 706DA47C11F15BB7CB1952B6DEE4DFF5 , Current player match score = 323, UniqueId=(Epic|local000000000000000000000000000|0), with total match time = 302.9711 seconds

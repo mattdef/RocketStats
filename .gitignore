@@ -1,4 +1,5 @@
 /target/
+node_modules/
 
 # Editor and OS noise
 .DS_Store
@@ -8,6 +9,7 @@ Thumbs.db
 
 .tmp
 .codex
+.opencode
 .agents
 .agent
 .agent.json
@@ -15,6 +17,7 @@ Thumbs.db
 
 # Logs
 *.log
+!apps/overlay/src-tauri/tests/fixtures/*.log
 
 # Builds
 build/
