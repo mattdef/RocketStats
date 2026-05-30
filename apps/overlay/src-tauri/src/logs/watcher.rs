@@ -44,10 +44,10 @@ pub async fn watch_log(config: LogWatcherConfig, events: mpsc::Sender<LogEvent>)
                         break;
                     }
                     offset += bytes as u64;
-                    if let Some(event) = parse_log_line(line.trim_end()) {
-                        if events.send(event).await.is_err() {
-                            return Ok(());
-                        }
+                    if let Some(event) = parse_log_line(line.trim_end())
+                        && events.send(event).await.is_err()
+                    {
+                        return Ok(());
                     }
                 }
             }
