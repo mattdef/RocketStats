@@ -15,8 +15,29 @@ export interface PlayerCard {
   data_age_seconds: number;
 }
 
+export type MatchPhase = "Idle" | "Matchmaking" | "Joining" | "InMatch" | "Ended";
+
+export interface DetectedPlayerId {
+  value: string;
+  first_seen_ms: number;
+}
+
+export interface MatchSession {
+  phase: MatchPhase;
+  playlist: number | null;
+  regions: string[];
+  server_name: string | null;
+  map: string | null;
+  guid: string | null;
+  detected_players: DetectedPlayerId[];
+  local_score: number | null;
+  duration_seconds: number | null;
+  xp: number | null;
+}
+
 export interface OverlayState {
   auth: AuthState;
+  match_session: MatchSession;
   players: PlayerCard[];
   partial_roster: boolean;
   status_message: string;
