@@ -1,3 +1,6 @@
+pub mod domain;
+pub mod error;
+
 use tracing_subscriber::{EnvFilter, fmt};
 
 pub fn run() {
