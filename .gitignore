@@ -15,6 +15,7 @@ Thumbs.db
 
 # Logs
 *.log
+!apps/overlay/src-tauri/tests/fixtures/*.log
 
 # Builds
 build/
