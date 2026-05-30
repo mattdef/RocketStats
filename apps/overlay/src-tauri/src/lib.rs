@@ -6,31 +6,44 @@ pub mod error;
 pub mod local_player;
 pub mod logs;
 pub mod match_tracker;
+pub mod settings;
 pub mod storage;
 
 use auth::AuthService;
 use bridge::{
-    SharedAuthService, SharedOverlayBackendState, emit_overlay_state, get_overlay_state, logout,
-    set_click_through, start_login,
+    SharedAuthService, SharedOverlayBackendState, emit_overlay_state, get_overlay_state,
+    get_settings, logout, open_settings_window, save_settings, set_click_through,
+    start_login, toggle_click_through,
 };
 use domain::{AuthState, InitEvent, LocalPlayerSummary};
 use enrichment::{PlayerEnrichment, PsyNetSkillClient};
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+use gtk::prelude::WidgetExt;
 use local_player::{LocalPlayerSummaryLoader, PsyNetLocalPlayerClient};
 use logs::parser::parse_init_line;
 use logs::watcher::{LogWatcherConfig, watch_log};
 use match_tracker::MatchTracker;
 use rocketstats_rlapi::{EpicAuthClient, PsyNetClient, PsyNetConfig};
+use settings::Settings;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use storage::Storage;
 use tauri::{Emitter, Manager};
-use tokio::sync::mpsc;
+use tokio::sync::{RwLock, mpsc};
 use tracing_subscriber::{EnvFilter, fmt};
 
 pub fn run() {
     init_tracing();
 
     let overlay_state: SharedOverlayBackendState = Arc::new(bridge::OverlayBackendState::default());
+    let initial_settings = Settings::load();
+    let settings: Arc<RwLock<Settings>> = Arc::new(RwLock::new(initial_settings.clone()));
 
     // Detect game version from Launch.log (non-blocking best-effort)
     let psynet_config = detect_psynet_config();
@@ -43,29 +56,28 @@ pub fn run() {
     tauri::Builder::default()
         .manage(overlay_state.clone())
         .manage(auth_service.clone())
+        .manage(settings.clone())
         .invoke_handler(tauri::generate_handler![
             get_overlay_state,
+            get_settings,
+            save_settings,
             set_click_through,
+            toggle_click_through,
+            open_settings_window,
             start_login,
             logout
         ])
         .setup(move |app| {
-            // Keep the overlay interactive during auth; click-through
-            // can be toggled via set_click_through once connected.
+            // Apply persisted window settings on startup
             if let Some(window) = app.get_webview_window("main") {
-                window.set_ignore_cursor_events(false)?;
+                apply_main_window_settings(&window, &initial_settings)?;
             }
             app.emit("bridge-ready", bridge::BridgeReady { ready: true })?;
 
             // --- Log watcher → mpsc channel ---
             let (log_tx, mut log_rx) = mpsc::channel::<domain::LogEvent>(64);
+            let log_path = initial_settings.resolved_log_path();
             tauri::async_runtime::spawn(async move {
-                let log_path = find_launch_log().unwrap_or_else(|| {
-                    let home = std::env::var_os("HOME")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(|| PathBuf::from("."));
-                    home.join(".local/share/RocketStats/Launch.log")
-                });
                 tracing::info!(path = %log_path.display(), "starting log watcher");
                 let config = LogWatcherConfig::new(log_path);
                 if let Err(e) = watch_log(config, log_tx).await {
@@ -245,9 +257,54 @@ pub fn run() {
         .expect("failed to run RocketStats overlay");
 }
 
+// --- Startup helpers ---
+
+fn apply_main_window_settings<R: tauri::Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    settings: &Settings,
+) -> tauri::Result<()> {
+    apply_window_opacity(window, settings.opacity)?;
+    window.set_always_on_top(settings.always_on_top)?;
+    window.set_ignore_cursor_events(settings.click_through)?;
+    Ok(())
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn apply_window_opacity<R: tauri::Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    opacity: f64,
+) -> tauri::Result<()> {
+    window.gtk_window()?.set_opacity(opacity);
+    Ok(())
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+)))]
+fn apply_window_opacity<R: tauri::Runtime>(
+    _window: &tauri::WebviewWindow<R>,
+    _opacity: f64,
+) -> tauri::Result<()> {
+    Ok(())
+}
+
+// --- Storage ---
+
 fn storage_database_path(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("overlay.sqlite3")
 }
+
+// --- Local player summary ---
 
 async fn sync_local_player_summary(
     overlay: &SharedOverlayBackendState,
@@ -305,6 +362,8 @@ fn fallback_local_player_summary(
     }
 }
 
+// --- PsyNet config detection ---
+
 /// Attempts to detect the game version from the Rocket League Launch.log.
 ///
 /// Checks, in order:
@@ -320,8 +379,6 @@ fn detect_psynet_config() -> PsyNetConfig {
 
     tracing::info!("reading Launch.log from {}", path.display());
 
-    // Read the first ~32KB — init section is at the very top.
-    // Launch.log may use ISO-8859 (Latin-1) or UTF-8; lossy decode handles both.
     let Ok(bytes) = std::fs::read(&path) else {
         tracing::warn!("failed to read Launch.log at {}", path.display());
         return PsyNetConfig::default();
@@ -374,25 +431,23 @@ fn find_launch_log() -> Option<PathBuf> {
     }
 
     // 2. Dev convenience: .tmp/Launch.log at project root
-    //    Works when running `cargo run` from the workspace root.
     let dev_path = PathBuf::from(".tmp/Launch.log");
     if dev_path.exists() {
         return Some(dev_path);
     }
 
-    // 3. Launch.log at CWD (where the app is started from)
+    // 3. Launch.log at CWD
     let cwd_log = PathBuf::from("Launch.log");
     if cwd_log.exists() {
         return Some(cwd_log);
     }
 
     // 4. Relative to crate manifest dir (compile-time)
-    //    From apps/overlay/src-tauri/ → project root/.tmp/Launch.log
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest_dir
-        .parent() // src-tauri/
-        .and_then(|p| p.parent()) // overlay/
-        .and_then(|p| p.parent()); // apps/ → project root
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent());
     if let Some(root) = project_root {
         let manifest_relative = root.join(".tmp/Launch.log");
         if manifest_relative.exists() {
@@ -412,6 +467,8 @@ fn find_launch_log() -> Option<PathBuf> {
 
     None
 }
+
+// --- Tests ---
 
 #[cfg(test)]
 mod capability_tests {

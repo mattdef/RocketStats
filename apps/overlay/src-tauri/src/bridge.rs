@@ -3,6 +3,7 @@ use crate::domain::{
     AuthState, LocalPlayerSummary, MAX_AUTH_DIAGNOSTICS, MatchSession, OverlayState, PlayerCard,
 };
 use crate::error::Result;
+use crate::settings::Settings;
 use crate::storage::Storage;
 use serde::Serialize;
 use std::sync::Arc;
@@ -11,6 +12,9 @@ use tokio::sync::{Mutex, RwLock};
 
 const STORAGE_NOT_READY_MESSAGE: &str =
     "Authentication services are still initializing. Retry in a moment.";
+
+const CLICK_THROUGH_TOGGLED_EVENT: &str = "click-through-toggled";
+const SETTINGS_UPDATED_EVENT: &str = "settings-updated";
 
 #[derive(Debug)]
 pub struct OverlayBackendState {
@@ -68,13 +72,93 @@ pub async fn get_overlay_state(
 pub async fn set_click_through<R: tauri::Runtime>(
     app: AppHandle<R>,
     enabled: bool,
+    settings: State<'_, Arc<RwLock<Settings>>>,
 ) -> std::result::Result<(), String> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "main window not found".to_owned())?;
     window
         .set_ignore_cursor_events(enabled)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+
+    let mut current = settings.inner().write().await;
+    current.click_through = enabled;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn toggle_click_through(
+    app: AppHandle,
+    settings: State<'_, Arc<RwLock<Settings>>>,
+) -> std::result::Result<bool, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_owned())?;
+
+    let mut current = settings.inner().write().await;
+    let enabled = toggled_click_through_state(current.click_through);
+
+    window
+        .set_ignore_cursor_events(enabled)
+        .map_err(|error| error.to_string())?;
+
+    current.click_through = enabled;
+    drop(current);
+
+    app.emit(CLICK_THROUGH_TOGGLED_EVENT, enabled)
+        .map_err(|error| error.to_string())?;
+
+    Ok(enabled)
+}
+
+#[tauri::command]
+pub async fn get_settings(
+    settings: State<'_, Arc<RwLock<Settings>>>,
+) -> std::result::Result<Settings, String> {
+    Ok(settings.inner().read().await.clone())
+}
+
+#[tauri::command]
+pub async fn save_settings(
+    app: AppHandle,
+    settings_state: State<'_, Arc<RwLock<Settings>>>,
+    settings: Settings,
+) -> std::result::Result<Settings, String> {
+    let settings = normalize_saved_settings(settings);
+
+    settings.save().map_err(|error| error.to_string())?;
+
+    let mut current = settings_state.inner().write().await;
+    *current = settings.clone();
+    drop(current);
+
+    app.emit(SETTINGS_UPDATED_EVENT, &settings)
+        .map_err(|error| error.to_string())?;
+
+    Ok(settings)
+}
+
+#[tauri::command]
+pub async fn open_settings_window(app: AppHandle) -> std::result::Result<(), String> {
+    if let Some(window) = app.get_webview_window("settings") {
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+    } else {
+        tauri::WebviewWindowBuilder::new(
+            &app,
+            "settings",
+            tauri::WebviewUrl::App("settings.html".into()),
+        )
+        .title("RocketStats Settings")
+        .inner_size(480.0, 520.0)
+        .resizable(false)
+        .center()
+        .build()
+        .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
 }
 
 pub async fn emit_overlay_state<R: tauri::Runtime>(
@@ -134,6 +218,20 @@ fn status_message(auth: &AuthState, player_count: usize) -> String {
         AuthState::Expired => "Epic/PsyNet auth expired".to_owned(),
         AuthState::Error { message } => format!("Auth error: {message}"),
     }
+}
+
+fn toggled_click_through_state(current: bool) -> bool {
+    !current
+}
+
+fn normalize_saved_settings(mut settings: Settings) -> Settings {
+    settings.opacity = if settings.opacity.is_finite() {
+        settings.opacity.clamp(0.1, 1.0)
+    } else {
+        Settings::default().opacity
+    };
+
+    settings
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -212,10 +310,12 @@ pub async fn logout<R: tauri::Runtime>(
 mod tests {
     use super::{
         OverlayBackendState, STORAGE_NOT_READY_MESSAGE, build_overlay_state, get_overlay_state,
-        start_login, status_message,
+        normalize_saved_settings, start_login, status_message, toggled_click_through_state,
+        SETTINGS_UPDATED_EVENT,
     };
     use crate::auth::AuthService;
     use crate::domain::{AuthState, LocalPlayerSummary, MAX_AUTH_DIAGNOSTICS, OverlayState};
+    use crate::settings::Settings;
     use crate::storage::Storage;
     use rocketstats_rlapi::{EpicAuthClient, PsyNetClient, PsyNetConfig};
     use std::sync::Arc;
@@ -393,5 +493,42 @@ mod tests {
                 ranked_2v2_division: Some(2),
             })
         );
+    }
+
+    // --- Settings tests ---
+
+    #[test]
+    fn toggled_click_through_state_disables_click_through_when_enabled() {
+        assert!(!toggled_click_through_state(true));
+    }
+
+    #[test]
+    fn toggled_click_through_state_enables_click_through_when_disabled() {
+        assert!(toggled_click_through_state(false));
+    }
+
+    #[test]
+    fn normalize_saved_settings_clamps_opacity_before_persisting() {
+        let normalized = normalize_saved_settings(Settings {
+            opacity: 4.2,
+            ..Settings::default()
+        });
+
+        assert_eq!(normalized.opacity, 1.0);
+    }
+
+    #[test]
+    fn normalize_saved_settings_uses_default_opacity_for_non_finite_values() {
+        let normalized = normalize_saved_settings(Settings {
+            opacity: f64::NAN,
+            ..Settings::default()
+        });
+
+        assert_eq!(normalized.opacity, Settings::default().opacity);
+    }
+
+    #[test]
+    fn settings_updated_event_name_matches_frontend_subscription() {
+        assert_eq!(SETTINGS_UPDATED_EVENT, "settings-updated");
     }
 }

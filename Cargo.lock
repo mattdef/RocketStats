@@ -3083,6 +3083,7 @@ dependencies = [
 name = "rocketstats-overlay"
 version = "0.1.0"
 dependencies = [
+ "gtk",
  "notify",
  "rocketstats-rlapi",
  "serde",

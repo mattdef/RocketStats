@@ -335,4 +335,8 @@ async function boot(): Promise<void> {
   syncOverlayPolling();
 }
 
+void listen<boolean>("click-through-toggled", (event) => {
+  console.info("Overlay click-through toggled:", event.payload);
+});
+
 void boot();

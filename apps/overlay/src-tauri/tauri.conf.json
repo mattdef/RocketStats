@@ -21,6 +21,17 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "resizable": true
+      },
+      {
+        "label": "settings",
+        "title": "RocketStats Settings",
+        "url": "/settings.html",
+        "width": 480,
+        "height": 520,
+        "visible": false,
+        "decorations": true,
+        "resizable": false,
+        "center": true
       }
     ],
     "security": {
