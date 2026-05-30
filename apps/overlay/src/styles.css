@@ -52,3 +52,44 @@ h1 {
   margin: 0;
   color: rgba(245, 241, 232, 0.74);
 }
+
+.warning {
+  min-height: 20px;
+  margin: 10px 0 0;
+  color: #ffcf75;
+  font-size: 13px;
+}
+
+.players {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.player-card {
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.player-card div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.player-card strong {
+  font-size: 16px;
+}
+
+.player-card span {
+  font-size: 11px;
+  color: rgba(245, 241, 232, 0.58);
+  word-break: break-all;
+}
+
+.player-card p {
+  margin: 8px 0 0;
+  color: rgba(245, 241, 232, 0.82);
+}
