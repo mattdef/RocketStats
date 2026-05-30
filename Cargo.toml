@@ -1,0 +1,4 @@
+[workspace]
+members = ["crates/rlapi"]
+resolver = "3"
+
