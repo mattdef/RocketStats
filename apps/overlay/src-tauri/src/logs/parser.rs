@@ -31,10 +31,10 @@ pub fn parse_init_line(line: &str) -> Option<InitEvent> {
 /// Strips an optional `[NNNN.MM] ` timestamp prefix. Returns the rest of the line,
 /// or the original line if no timestamp was found.
 fn strip_timestamp_prefix(line: &str) -> &str {
-    if let Some(rest) = line.strip_prefix('[') {
-        if let Some((_ts, rest)) = rest.split_once("] ") {
-            return rest;
-        }
+    if let Some(rest) = line.strip_prefix('[')
+        && let Some((_ts, rest)) = rest.split_once("] ")
+    {
+        return rest;
     }
     line
 }
