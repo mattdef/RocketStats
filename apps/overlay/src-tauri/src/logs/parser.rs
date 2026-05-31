@@ -16,14 +16,31 @@ pub fn parse_log_line(line: &str) -> Option<LogEvent> {
 ///
 /// These lines appear at the very start of the log and contain game metadata
 /// (version, feature set) and the Epic launcher's command-line arguments.
+///
+/// Timestamp prefixes like `[0000.00]` are optional — the first few lines
+/// may appear without them.
 pub fn parse_init_line(line: &str) -> Option<InitEvent> {
-    parse_build_version(line)
-        .or_else(|| parse_feature_set(line))
-        .or_else(|| parse_command_line_identity(line))
+    // Strip optional `[NNNN.MM] ` prefix
+    let body = strip_timestamp_prefix(line);
+    parse_build_version(body)
+        .or_else(|| parse_psyonix_build_id(body))
+        .or_else(|| parse_feature_set(body))
+        .or_else(|| parse_cmdline_identity(body))
 }
 
-fn parse_build_version(line: &str) -> Option<InitEvent> {
-    let body = line.strip_prefix('[')?.split_once(']')?.1.trim_start();
+/// Strips an optional `[NNNN.MM] ` timestamp prefix. Returns the rest of the line,
+/// or the original line if no timestamp was found.
+fn strip_timestamp_prefix(line: &str) -> &str {
+    if let Some(rest) = line.strip_prefix('[') {
+        if let Some((_ts, rest)) = rest.split_once("] ") {
+            return rest;
+        }
+    }
+    line
+}
+
+/// Matches `LogInit: Build: <version>` (common log format).
+fn parse_build_version(body: &str) -> Option<InitEvent> {
     let version = body.strip_prefix("LogInit: Build: ")?;
     let version = version.trim();
     if version.is_empty() {
@@ -32,8 +49,19 @@ fn parse_build_version(line: &str) -> Option<InitEvent> {
     Some(InitEvent::BuildVersion(version.to_owned()))
 }
 
-fn parse_feature_set(line: &str) -> Option<InitEvent> {
-    let body = line.strip_prefix('[')?.split_once(']')?.1.trim_start();
+/// Matches `Log: GPsyonixBuildID <version>` (the real-game format,
+/// often without a timestamp prefix).
+fn parse_psyonix_build_id(body: &str) -> Option<InitEvent> {
+    let version = body.strip_prefix("Log: GPsyonixBuildID ")?;
+    let version = version.trim();
+    if version.is_empty() {
+        return None;
+    }
+    Some(InitEvent::BuildVersion(version.to_owned()))
+}
+
+/// Matches `LogInit: FeatureSet: <name>` (some log formats).
+fn parse_feature_set(body: &str) -> Option<InitEvent> {
     let feature_set = body.strip_prefix("LogInit: FeatureSet: ")?;
     let feature_set = feature_set.trim();
     if feature_set.is_empty() {
@@ -42,9 +70,11 @@ fn parse_feature_set(line: &str) -> Option<InitEvent> {
     Some(InitEvent::FeatureSet(feature_set.to_owned()))
 }
 
-fn parse_command_line_identity(line: &str) -> Option<InitEvent> {
-    let body = line.strip_prefix('[')?.split_once(']')?.1.trim_start();
-    let cmdline = body.strip_prefix("Command line: ")?;
+/// Matches `Command line: ...` or `Log: Command line: ...`
+fn parse_cmdline_identity(body: &str) -> Option<InitEvent> {
+    let cmdline = body
+        .strip_prefix("Log: Command line: ")
+        .or_else(|| body.strip_prefix("Command line: "))?;
     let epic_user_id = extract_flag_value(cmdline, "-epicuserid=")?;
     if epic_user_id.is_empty() {
         return None;
@@ -342,6 +372,29 @@ mod tests {
     }
 
     #[test]
+    fn parses_psyonix_build_id_without_timestamp() {
+        let line = "Log: GPsyonixBuildID 260506.26700.517210";
+        let event = parse_init_line(line);
+        assert_eq!(
+            event,
+            Some(InitEvent::BuildVersion("260506.26700.517210".to_owned()))
+        );
+    }
+
+    #[test]
+    fn parses_log_prefix_command_line() {
+        let line = "Log: Command line: -epicuserid=7efc351e447043c4be4447da51b790e4 -epicusername=DevPlayer";
+        let event = parse_init_line(line);
+        assert_eq!(
+            event,
+            Some(InitEvent::EpicIdentity {
+                epic_user_id: "7efc351e447043c4be4447da51b790e4".to_owned(),
+                epic_user_name: Some("DevPlayer".to_owned()),
+            })
+        );
+    }
+
+    #[test]
     fn init_line_returns_none_for_match_events() {
         assert_eq!(
             parse_init_line("[0223.91] Matchmaking: StartMatchmaking"),
@@ -350,8 +403,9 @@ mod tests {
     }
 
     #[test]
-    fn init_line_returns_none_for_empty_body() {
+    fn init_line_returns_none_for_empty_value() {
         assert_eq!(parse_init_line("[0000.00] LogInit: Build: "), None);
+        assert_eq!(parse_init_line("Log: GPsyonixBuildID "), None);
         assert_eq!(parse_init_line("[0000.00] Command line: "), None);
     }
 }

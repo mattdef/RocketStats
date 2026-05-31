@@ -130,11 +130,13 @@ fn detect_psynet_config() -> PsyNetConfig {
 
     tracing::info!("reading Launch.log from {}", path.display());
 
-    // Read the first 500 lines — init section is at the very top
-    let Ok(content) = std::fs::read_to_string(&path) else {
+    // Read the first ~32KB — init section is at the very top.
+    // Launch.log may use ISO-8859 (Latin-1) or UTF-8; lossy decode handles both.
+    let Ok(bytes) = std::fs::read(&path) else {
         tracing::warn!("failed to read Launch.log at {}", path.display());
         return PsyNetConfig::default();
     };
+    let content = String::from_utf8_lossy(&bytes);
 
     let mut game_version: Option<String> = None;
     let mut feature_set: Option<String> = None;
