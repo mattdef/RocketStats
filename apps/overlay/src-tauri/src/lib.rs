@@ -55,7 +55,7 @@ pub fn run() {
             let overlay = overlay_state.clone();
             let auth = auth_service.clone();
 
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 // Connect to SQLite (in-memory for now; swap to file path for persistence)
                 let storage = match Storage::connect("sqlite::memory:").await {
                     Ok(s) => {
@@ -78,7 +78,7 @@ pub fn run() {
                 let sync_overlay = overlay.clone();
                 let sync_auth = auth.clone();
                 let sync_handle = app_handle.clone();
-                tokio::spawn(async move {
+                tauri::async_runtime::spawn(async move {
                     let mut rx = {
                         let svc = sync_auth.lock().await;
                         svc.subscribe()
