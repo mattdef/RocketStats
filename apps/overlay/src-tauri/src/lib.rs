@@ -195,8 +195,9 @@ fn find_launch_log() -> Option<PathBuf> {
     }
 
     // 4. Relative to crate manifest dir (compile-time)
-    //    From apps/overlay/src-tauri/ → ../../.tmp/Launch.log = project root
-    let manifest_relative = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.tmp/Launch.log");
+    //    From apps/overlay/src-tauri/ → ../../../.tmp/Launch.log = project root
+    let manifest_relative =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../.tmp/Launch.log");
     if manifest_relative.exists() {
         return Some(manifest_relative);
     }
