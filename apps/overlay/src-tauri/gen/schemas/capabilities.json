@@ -1,1 +1,1 @@
-{}
+{"main":{"identifier":"main","description":"Allows the main overlay window to use core Tauri APIs and listen for backend overlay-state events.","local":true,"windows":["main"],"permissions":["core:default"]}}

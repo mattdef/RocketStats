@@ -100,6 +100,35 @@ h1 {
   margin-top: 12px;
 }
 
+.auth-diagnostics {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.auth-diagnostics ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.auth-diagnostics li {
+  color: rgba(245, 241, 232, 0.84);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.diagnostics-title {
+  margin: 0;
+  color: #ffcf75;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .auth-btn {
   display: inline-block;
   padding: 10px 20px;
@@ -154,6 +183,8 @@ h1 {
 }
 
 .code-link {
+  display: block;
+  margin-top: 10px;
   font-size: 12px;
   color: rgba(245, 241, 232, 0.5);
   word-break: break-all;
@@ -161,6 +192,10 @@ h1 {
 
 .code-link:hover {
   color: #ffcf75;
+}
+
+.code-open-btn {
+  margin-top: 6px;
 }
 
 .error {

@@ -51,13 +51,11 @@ pub fn run() {
             }
             app.emit("bridge-ready", bridge::BridgeReady { ready: true })?;
 
-            // Initialize storage asynchronously
             let app_handle = app.handle().clone();
             let overlay = overlay_state.clone();
             let auth = auth_service.clone();
 
             tauri::async_runtime::spawn(async move {
-                // Connect to SQLite (in-memory for now; swap to file path for persistence)
                 let storage = match Storage::connect("sqlite::memory:").await {
                     Ok(s) => {
                         if let Err(e) = s.migrate().await {
@@ -72,18 +70,31 @@ pub fn run() {
                     }
                 };
 
-                // Manage storage so bridge commands can access it
                 app_handle.manage(storage.clone());
 
-                // Spawn state sync task: AuthService changes → OverlayBackendState → emit
+                let mut rx = {
+                    let svc = auth.lock().await;
+                    svc.subscribe()
+                };
+                let mut diagnostics_rx = {
+                    let svc = auth.lock().await;
+                    svc.subscribe_diagnostics()
+                };
+
+                {
+                    let auth_state = rx.borrow().clone();
+                    let mut stored = overlay.auth.write().await;
+                    *stored = auth_state;
+                }
+                let diagnostics = diagnostics_rx.borrow().clone();
+                overlay.replace_auth_diagnostics(diagnostics).await;
+                if let Err(error) = bridge::emit_overlay_state(&app_handle, &overlay).await {
+                    tracing::warn!("failed to emit initial overlay state: {error}");
+                }
+
                 let sync_overlay = overlay.clone();
-                let sync_auth = auth.clone();
                 let sync_handle = app_handle.clone();
                 tauri::async_runtime::spawn(async move {
-                    let mut rx = {
-                        let svc = sync_auth.lock().await;
-                        svc.subscribe()
-                    };
                     loop {
                         if rx.changed().await.is_err() {
                             break;
@@ -93,7 +104,31 @@ pub fn run() {
                             let mut stored = sync_overlay.auth.write().await;
                             *stored = auth_state;
                         }
-                        let _ = bridge::emit_overlay_state(&sync_handle, &sync_overlay).await;
+                        if let Err(error) =
+                            bridge::emit_overlay_state(&sync_handle, &sync_overlay).await
+                        {
+                            tracing::warn!("failed to emit auth overlay state: {error}");
+                        }
+                    }
+                });
+
+                let diagnostics_overlay = overlay.clone();
+                let diagnostics_handle = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        if diagnostics_rx.changed().await.is_err() {
+                            break;
+                        }
+                        let diagnostics = diagnostics_rx.borrow().clone();
+                        diagnostics_overlay
+                            .replace_auth_diagnostics(diagnostics)
+                            .await;
+                        if let Err(error) =
+                            bridge::emit_overlay_state(&diagnostics_handle, &diagnostics_overlay)
+                                .await
+                        {
+                            tracing::warn!("failed to emit diagnostics overlay state: {error}");
+                        }
                     }
                 });
 
@@ -222,6 +257,38 @@ fn find_launch_log() -> Option<PathBuf> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod capability_tests {
+    #[test]
+    fn main_window_capability_allows_event_listen() {
+        let capability = std::fs::read_to_string("capabilities/main.json")
+            .expect("expected Tauri capability file for main window");
+        let json: serde_json::Value =
+            serde_json::from_str(&capability).expect("expected valid capability JSON");
+
+        let windows = json["windows"]
+            .as_array()
+            .expect("expected windows array in capability");
+        assert!(
+            windows.iter().any(|window| window.as_str() == Some("main")),
+            "capability must target the main window"
+        );
+
+        let permissions = json["permissions"]
+            .as_array()
+            .expect("expected permissions array in capability");
+        assert!(
+            permissions.iter().any(|permission| {
+                matches!(
+                    permission.as_str(),
+                    Some("core:event:default") | Some("core:default")
+                )
+            }),
+            "capability must allow core:event:default directly or through core:default so the frontend can listen for overlay-state"
+        );
+    }
 }
 
 fn dirs_next() -> Option<PathBuf> {

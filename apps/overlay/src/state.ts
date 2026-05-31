@@ -1,5 +1,6 @@
 export type AuthState =
   | "Unauthenticated"
+  | "StartingDeviceLogin"
   | { WaitingForDeviceCode: { user_code: string; verification_uri: string; expires_in: number } }
   | { Connected: { account_id: string; player_name: string | null; refresh_token: string | null } }
   | "Expired"
@@ -37,6 +38,7 @@ export interface MatchSession {
 
 export interface OverlayState {
   auth: AuthState;
+  auth_diagnostics: string[];
   match_session: MatchSession;
   players: PlayerCard[];
   partial_roster: boolean;
@@ -45,6 +47,7 @@ export interface OverlayState {
 
 export function authLabel(auth: AuthState): string {
   if (auth === "Unauthenticated") return "Auth required";
+  if (auth === "StartingDeviceLogin") return "Starting login";
   if (auth === "Expired") return "Auth expired";
   if (typeof auth === "object" && "WaitingForDeviceCode" in auth) return "Waiting for login";
   if (typeof auth === "object" && "Connected" in auth) return `Connected as ${auth.Connected.player_name ?? auth.Connected.account_id}`;

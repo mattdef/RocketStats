@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+pub const MAX_AUTH_DIAGNOSTICS: usize = 10;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuthState {
     Unauthenticated,
+    StartingDeviceLogin,
     WaitingForDeviceCode {
         user_code: String,
         verification_uri: String,
@@ -132,6 +135,7 @@ pub struct PlayerCard {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OverlayState {
     pub auth: AuthState,
+    pub auth_diagnostics: Vec<String>,
     pub match_session: MatchSession,
     pub players: Vec<PlayerCard>,
     pub partial_roster: bool,

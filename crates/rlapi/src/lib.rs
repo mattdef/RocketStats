@@ -349,11 +349,16 @@ impl Default for EpicAuthClient {
 impl EpicAuthClient {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("valid Epic auth HTTP client"),
         }
     }
 
     pub async fn start_device_authorization(&self) -> Result<DeviceAuthResponse> {
+        tracing::info!("requesting Epic device authorization");
         let response = self
             .client
             .post("https://api.epicgames.dev/epic/oauth/v2/deviceAuthorization")
@@ -363,6 +368,7 @@ impl EpicAuthClient {
             .send()
             .await?
             .error_for_status()?;
+        tracing::info!("received Epic device authorization response");
         Ok(response.json().await?)
     }
 
@@ -371,7 +377,12 @@ impl EpicAuthClient {
         device: &DeviceAuthResponse,
     ) -> Result<EosTokenResponse> {
         let attempts = device.expires_in / device.interval.max(1);
-        for _ in 0..attempts {
+        tracing::info!(
+            attempts,
+            interval_seconds = device.interval.max(1),
+            "polling for Epic device approval"
+        );
+        for attempt in 0..attempts {
             match self
                 .request_eos_token([
                     ("grant_type", "device_code"),
@@ -379,13 +390,18 @@ impl EpicAuthClient {
                 ])
                 .await
             {
-                Ok(token) => return Ok(token),
+                Ok(token) => {
+                    tracing::info!(attempt = attempt + 1, "Epic device approval completed");
+                    return Ok(token);
+                }
                 Err(RlApiError::Http(_)) => {
+                    tracing::debug!(attempt = attempt + 1, "Epic device approval still pending");
                     time::sleep(Duration::from_secs(device.interval.max(1))).await;
                 }
                 Err(err) => return Err(err),
             }
         }
+        tracing::warn!("Epic device approval timed out");
         Err(RlApiError::Timeout)
     }
 
@@ -459,6 +475,7 @@ impl PsyNetClient {
         account_id: &str,
         account_name: Option<&str>,
     ) -> Result<PsyNetRpc> {
+        tracing::info!("authenticating with PsyNet");
         let local_player_id = PlayerId::new(Platform::Epic, account_id);
         let request = AuthPlayerRequest {
             platform: Platform::Epic.to_string(),
@@ -479,13 +496,16 @@ impl PsyNetClient {
         let auth: AuthPlayerResponse = self
             .post_json(&["Auth", "AuthPlayer", "v2"], &request)
             .await?;
-        self.establish_socket(
-            auth.per_con_url_v2.as_str(),
-            local_player_id,
-            auth.psy_token.as_str(),
-            auth.session_id.as_str(),
-        )
-        .await
+        let rpc = self
+            .establish_socket(
+                auth.per_con_url_v2.as_str(),
+                local_player_id,
+                auth.psy_token.as_str(),
+                auth.session_id.as_str(),
+            )
+            .await?;
+        tracing::info!("connected to PsyNet websocket");
+        Ok(rpc)
     }
 
     async fn post_json<TReq, TRes>(&self, path: &[&str], params: &TReq) -> Result<TRes>
