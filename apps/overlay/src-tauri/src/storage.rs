@@ -1,5 +1,7 @@
 use crate::domain::{PlayerCard, StoredTokens};
 use crate::error::Result;
+use sqlx::sqlite::SqliteConnectOptions;
+use std::path::Path;
 
 pub struct Storage {
     pool: sqlx::SqlitePool,
@@ -8,6 +10,18 @@ pub struct Storage {
 impl Storage {
     pub async fn connect(database_url: &str) -> Result<Self> {
         let pool = sqlx::SqlitePool::connect(database_url).await?;
+        Ok(Self { pool })
+    }
+
+    pub async fn connect_file(path: &Path) -> Result<Self> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true);
+        let pool = sqlx::SqlitePool::connect_with(options).await?;
         Ok(Self { pool })
     }
 
@@ -180,6 +194,7 @@ impl AuthTokensRow {
 mod tests {
     use super::Storage;
     use crate::domain::{PlayerCard, StoredTokens};
+    use tempfile::tempdir;
 
     #[tokio::test]
     async fn stores_and_reads_player_card() {
@@ -238,5 +253,29 @@ mod tests {
         // Clear tokens
         storage.clear_auth_tokens().await.unwrap();
         assert!(storage.load_auth_tokens().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn persists_auth_tokens_across_file_backed_connections() {
+        let tempdir = tempdir().unwrap();
+        let db_path = tempdir.path().join("rocketstats-overlay.db");
+
+        let storage = Storage::connect_file(&db_path).await.unwrap();
+        storage.migrate().await.unwrap();
+
+        let tokens = StoredTokens {
+            refresh_token: "persisted-refresh-token".to_owned(),
+            account_id: "7efc351e447043c4be4447da51b790e4".to_owned(),
+            player_name: Some("PersistentPlayer".to_owned()),
+        };
+        storage.store_auth_tokens(&tokens).await.unwrap();
+
+        drop(storage);
+
+        let reopened = Storage::connect_file(&db_path).await.unwrap();
+        reopened.migrate().await.unwrap();
+
+        let loaded = reopened.load_auth_tokens().await.unwrap();
+        assert_eq!(loaded, Some(tokens));
     }
 }

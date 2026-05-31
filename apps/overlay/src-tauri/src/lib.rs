@@ -15,7 +15,7 @@ use bridge::{
 use domain::InitEvent;
 use logs::parser::parse_init_line;
 use rocketstats_rlapi::{EpicAuthClient, PsyNetClient, PsyNetConfig};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use storage::Storage;
 use tauri::{Emitter, Manager};
@@ -56,7 +56,16 @@ pub fn run() {
             let auth = auth_service.clone();
 
             tauri::async_runtime::spawn(async move {
-                let storage = match Storage::connect("sqlite::memory:").await {
+                let storage_path = match app_handle.path().app_data_dir() {
+                    Ok(dir) => storage_database_path(&dir),
+                    Err(error) => {
+                        tracing::error!("failed to resolve app data directory: {error}");
+                        return;
+                    }
+                };
+                tracing::info!("using storage database at {}", storage_path.display());
+
+                let storage = match Storage::connect_file(&storage_path).await {
                     Ok(s) => {
                         if let Err(e) = s.migrate().await {
                             tracing::error!("storage migration failed: {e}");
@@ -149,6 +158,10 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("failed to run RocketStats overlay");
+}
+
+fn storage_database_path(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("overlay.sqlite3")
 }
 
 /// Attempts to detect the game version from the Rocket League Launch.log.
@@ -261,6 +274,15 @@ fn find_launch_log() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod capability_tests {
+    use super::storage_database_path;
+    use std::path::Path;
+
+    #[test]
+    fn storage_database_path_stays_under_app_data_dir() {
+        let path = storage_database_path(Path::new("/tmp/rocketstats-data"));
+        assert_eq!(path, Path::new("/tmp/rocketstats-data/overlay.sqlite3"));
+    }
+
     #[test]
     fn main_window_capability_allows_event_listen() {
         let capability = std::fs::read_to_string("capabilities/main.json")
