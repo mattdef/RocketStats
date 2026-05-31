@@ -195,11 +195,17 @@ fn find_launch_log() -> Option<PathBuf> {
     }
 
     // 4. Relative to crate manifest dir (compile-time)
-    //    From apps/overlay/src-tauri/ → ../../../.tmp/Launch.log = project root
-    let manifest_relative =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../.tmp/Launch.log");
-    if manifest_relative.exists() {
-        return Some(manifest_relative);
+    //    From apps/overlay/src-tauri/ → project root/.tmp/Launch.log
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest_dir
+        .parent() // src-tauri/
+        .and_then(|p| p.parent()) // overlay/
+        .and_then(|p| p.parent()); // apps/ → project root
+    if let Some(root) = project_root {
+        let manifest_relative = root.join(".tmp/Launch.log");
+        if manifest_relative.exists() {
+            return Some(manifest_relative);
+        }
     }
 
     // 5. Common Proton/Wine path on Linux
