@@ -181,7 +181,14 @@ fn find_launch_log() -> Option<PathBuf> {
         }
     }
 
-    // 2. Common Proton/Wine path on Linux
+    // 2. Dev convenience: .tmp/Launch.log at project root
+    //    Works when running `cargo run` from the workspace root.
+    let dev_path = PathBuf::from(".tmp/Launch.log");
+    if dev_path.exists() {
+        return Some(dev_path);
+    }
+
+    // 3. Common Proton/Wine path on Linux
     if let Some(home) = dirs_next() {
         let proton_path = home
             .join(".steam/steam/steamapps/compatdata/252950/pfx/drive_c")
