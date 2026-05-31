@@ -11,6 +11,7 @@ pub enum AuthState {
     Connected {
         account_id: String,
         player_name: Option<String>,
+        refresh_token: Option<String>,
     },
     Expired,
     Error {
@@ -97,6 +98,24 @@ impl Default for MatchSession {
             xp: None,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredTokens {
+    pub refresh_token: String,
+    pub account_id: String,
+    pub player_name: Option<String>,
+}
+
+/// Information extracted from the Rocket League Launch.log initialization section.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InitEvent {
+    BuildVersion(String),
+    FeatureSet(String),
+    EpicIdentity {
+        epic_user_id: String,
+        epic_user_name: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

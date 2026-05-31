@@ -1,4 +1,4 @@
-use crate::domain::LogEvent;
+use crate::domain::{InitEvent, LogEvent};
 
 pub fn parse_log_line(line: &str) -> Option<LogEvent> {
     let timestamp_ms = parse_timestamp_ms(line)?;
@@ -10,6 +10,64 @@ pub fn parse_log_line(line: &str) -> Option<LogEvent> {
         .or_else(|| parse_player_id(body, timestamp_ms))
         .or_else(|| parse_match_end_with_xp(body, timestamp_ms))
         .or_else(|| parse_match_end_without_xp(body, timestamp_ms))
+}
+
+/// Parses initialization lines from the Launch.log header.
+///
+/// These lines appear at the very start of the log and contain game metadata
+/// (version, feature set) and the Epic launcher's command-line arguments.
+pub fn parse_init_line(line: &str) -> Option<InitEvent> {
+    parse_build_version(line)
+        .or_else(|| parse_feature_set(line))
+        .or_else(|| parse_command_line_identity(line))
+}
+
+fn parse_build_version(line: &str) -> Option<InitEvent> {
+    let body = line.strip_prefix('[')?.split_once(']')?.1.trim_start();
+    let version = body.strip_prefix("LogInit: Build: ")?;
+    let version = version.trim();
+    if version.is_empty() {
+        return None;
+    }
+    Some(InitEvent::BuildVersion(version.to_owned()))
+}
+
+fn parse_feature_set(line: &str) -> Option<InitEvent> {
+    let body = line.strip_prefix('[')?.split_once(']')?.1.trim_start();
+    let feature_set = body.strip_prefix("LogInit: FeatureSet: ")?;
+    let feature_set = feature_set.trim();
+    if feature_set.is_empty() {
+        return None;
+    }
+    Some(InitEvent::FeatureSet(feature_set.to_owned()))
+}
+
+fn parse_command_line_identity(line: &str) -> Option<InitEvent> {
+    let body = line.strip_prefix('[')?.split_once(']')?.1.trim_start();
+    let cmdline = body.strip_prefix("Command line: ")?;
+    let epic_user_id = extract_flag_value(cmdline, "-epicuserid=")?;
+    if epic_user_id.is_empty() {
+        return None;
+    }
+    let epic_user_name = extract_flag_value(cmdline, "-epicusername=").map(str::to_owned);
+    Some(InitEvent::EpicIdentity {
+        epic_user_id: epic_user_id.to_owned(),
+        epic_user_name,
+    })
+}
+
+fn extract_flag_value<'a>(cmdline: &'a str, flag: &str) -> Option<&'a str> {
+    let start = cmdline.find(flag)?;
+    let after_flag = &cmdline[start + flag.len()..];
+    // Value is either the next token (until whitespace) or until end of string
+    let end = after_flag
+        .find(char::is_whitespace)
+        .unwrap_or(after_flag.len());
+    let value = &after_flag[..end];
+    if value.is_empty() {
+        return None;
+    }
+    Some(value)
 }
 
 fn parse_timestamp_ms(line: &str) -> Option<u64> {
@@ -129,8 +187,8 @@ fn parse_str_between<'a>(input: &'a str, start: &str, end: &str) -> Option<&'a s
 
 #[cfg(test)]
 mod tests {
-    use super::parse_log_line;
-    use crate::domain::LogEvent;
+    use super::{parse_init_line, parse_log_line};
+    use crate::domain::{InitEvent, LogEvent};
 
     #[test]
     fn parses_matchmaking_started() {
@@ -235,5 +293,65 @@ mod tests {
                 timestamp_ms: 619_020,
             })
         );
+    }
+
+    #[test]
+    fn parses_build_version() {
+        let line = "[0000.00] LogInit: Build: 260506.26700.517210";
+        let event = parse_init_line(line);
+        assert_eq!(
+            event,
+            Some(InitEvent::BuildVersion("260506.26700.517210".to_owned()))
+        );
+    }
+
+    #[test]
+    fn parses_feature_set() {
+        let line = "[0000.00] LogInit: FeatureSet: PrimeUpdate58_1";
+        let event = parse_init_line(line);
+        assert_eq!(
+            event,
+            Some(InitEvent::FeatureSet("PrimeUpdate58_1".to_owned()))
+        );
+    }
+
+    #[test]
+    fn parses_command_line_identity() {
+        let line = "[0000.00] Command line: -AUTH_PASSWORD=5139003f31b04a6ba73e914a8860125a -epicuserid=7efc351e447043c4be4447da51b790e4 -epicusername=TestPlayer";
+        let event = parse_init_line(line);
+        assert_eq!(
+            event,
+            Some(InitEvent::EpicIdentity {
+                epic_user_id: "7efc351e447043c4be4447da51b790e4".to_owned(),
+                epic_user_name: Some("TestPlayer".to_owned()),
+            })
+        );
+    }
+
+    #[test]
+    fn parses_command_line_without_username() {
+        let line = "[0000.00] Command line: -epicuserid=7efc351e447043c4be4447da51b790e4";
+        let event = parse_init_line(line);
+        assert_eq!(
+            event,
+            Some(InitEvent::EpicIdentity {
+                epic_user_id: "7efc351e447043c4be4447da51b790e4".to_owned(),
+                epic_user_name: None,
+            })
+        );
+    }
+
+    #[test]
+    fn init_line_returns_none_for_match_events() {
+        assert_eq!(
+            parse_init_line("[0223.91] Matchmaking: StartMatchmaking"),
+            None
+        );
+    }
+
+    #[test]
+    fn init_line_returns_none_for_empty_body() {
+        assert_eq!(parse_init_line("[0000.00] LogInit: Build: "), None);
+        assert_eq!(parse_init_line("[0000.00] Command line: "), None);
     }
 }

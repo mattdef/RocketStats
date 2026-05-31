@@ -1,4 +1,4 @@
-use crate::domain::PlayerCard;
+use crate::domain::{PlayerCard, StoredTokens};
 use crate::error::Result;
 
 pub struct Storage {
@@ -27,6 +27,20 @@ impl Storage {
         )
         .execute(&self.pool)
         .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS auth_tokens (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                refresh_token TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                player_name TEXT
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
         Ok(())
     }
 
@@ -78,6 +92,46 @@ impl Storage {
 
         Ok(row.map(PlayerCardRow::into_card))
     }
+
+    pub async fn store_auth_tokens(&self, tokens: &StoredTokens) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO auth_tokens (id, refresh_token, account_id, player_name)
+            VALUES (1, ?1, ?2, ?3)
+            ON CONFLICT(id) DO UPDATE SET
+                refresh_token = excluded.refresh_token,
+                account_id = excluded.account_id,
+                player_name = excluded.player_name
+            "#,
+        )
+        .bind(&tokens.refresh_token)
+        .bind(&tokens.account_id)
+        .bind(&tokens.player_name)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn load_auth_tokens(&self) -> Result<Option<StoredTokens>> {
+        let row = sqlx::query_as::<_, AuthTokensRow>(
+            r#"
+            SELECT refresh_token, account_id, player_name
+            FROM auth_tokens
+            WHERE id = 1
+            "#,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(AuthTokensRow::into_stored))
+    }
+
+    pub async fn clear_auth_tokens(&self) -> Result<()> {
+        sqlx::query("DELETE FROM auth_tokens WHERE id = 1")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 #[derive(sqlx::FromRow)]
@@ -105,10 +159,27 @@ impl PlayerCardRow {
     }
 }
 
+#[derive(sqlx::FromRow)]
+struct AuthTokensRow {
+    refresh_token: String,
+    account_id: String,
+    player_name: Option<String>,
+}
+
+impl AuthTokensRow {
+    fn into_stored(self) -> StoredTokens {
+        StoredTokens {
+            refresh_token: self.refresh_token,
+            account_id: self.account_id,
+            player_name: self.player_name,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Storage;
-    use crate::domain::PlayerCard;
+    use crate::domain::{PlayerCard, StoredTokens};
 
     #[tokio::test]
     async fn stores_and_reads_player_card() {
@@ -132,5 +203,40 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(stored, Some(card));
+    }
+
+    #[tokio::test]
+    async fn stores_reads_and_clears_auth_tokens() {
+        let storage = Storage::connect("sqlite::memory:").await.unwrap();
+        storage.migrate().await.unwrap();
+
+        // No tokens initially
+        assert!(storage.load_auth_tokens().await.unwrap().is_none());
+
+        // Store tokens
+        let tokens = StoredTokens {
+            refresh_token: "test-refresh-token".to_owned(),
+            account_id: "7efc351e447043c4be4447da51b790e4".to_owned(),
+            player_name: Some("TestPlayer".to_owned()),
+        };
+        storage.store_auth_tokens(&tokens).await.unwrap();
+
+        // Read tokens
+        let loaded = storage.load_auth_tokens().await.unwrap();
+        assert_eq!(loaded, Some(tokens.clone()));
+
+        // Upsert updates existing
+        let updated = StoredTokens {
+            refresh_token: "new-refresh-token".to_owned(),
+            account_id: "7efc351e447043c4be4447da51b790e4".to_owned(),
+            player_name: None,
+        };
+        storage.store_auth_tokens(&updated).await.unwrap();
+        let loaded = storage.load_auth_tokens().await.unwrap();
+        assert_eq!(loaded, Some(updated));
+
+        // Clear tokens
+        storage.clear_auth_tokens().await.unwrap();
+        assert!(storage.load_auth_tokens().await.unwrap().is_none());
     }
 }

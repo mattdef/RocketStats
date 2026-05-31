@@ -1,9 +1,11 @@
+use crate::auth::AuthService;
 use crate::domain::{AuthState, MatchSession, OverlayState, PlayerCard};
 use crate::error::Result;
+use crate::storage::Storage;
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 #[derive(Debug)]
 pub struct OverlayBackendState {
@@ -76,4 +78,38 @@ fn status_message(auth: &AuthState, player_count: usize) -> String {
 #[derive(Clone, Debug, Serialize)]
 pub struct BridgeReady {
     pub ready: bool,
+}
+
+/// Shared AuthService managed by Tauri.
+pub type SharedAuthService = Arc<Mutex<AuthService>>;
+
+/// Starts the Epic device-code login flow.
+///
+/// Spawns a background task so the command returns immediately.
+/// State updates are emitted via the `overlay-state` event.
+#[tauri::command]
+pub async fn start_login(
+    auth: State<'_, SharedAuthService>,
+    storage: State<'_, Arc<Storage>>,
+) -> std::result::Result<(), String> {
+    let svc = auth.inner().clone();
+    let store = storage.inner().clone();
+    tokio::spawn(async move {
+        let mut svc = svc.lock().await;
+        if let Err(e) = svc.start_device_login(&store).await {
+            tracing::error!("device login failed: {e}");
+        }
+    });
+    Ok(())
+}
+
+/// Logs out: closes PsyNet connection, clears stored tokens.
+#[tauri::command]
+pub async fn logout(
+    auth: State<'_, SharedAuthService>,
+    storage: State<'_, Arc<Storage>>,
+) -> std::result::Result<(), String> {
+    let mut svc = auth.lock().await;
+    svc.logout(&storage).await;
+    Ok(())
 }
