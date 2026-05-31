@@ -188,7 +188,21 @@ fn find_launch_log() -> Option<PathBuf> {
         return Some(dev_path);
     }
 
-    // 3. Common Proton/Wine path on Linux
+    // 3. Launch.log at CWD (where the app is started from)
+    let cwd_log = PathBuf::from("Launch.log");
+    if cwd_log.exists() {
+        return Some(cwd_log);
+    }
+
+    // 4. Relative to crate manifest dir (compile-time)
+    //    From apps/overlay/src-tauri/ → ../../.tmp/Launch.log = project root
+    let manifest_relative = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.tmp/Launch.log");
+    if manifest_relative.exists() {
+        return Some(manifest_relative);
+    }
+
+    // 5. Common Proton/Wine path on Linux
     if let Some(home) = dirs_next() {
         let proton_path = home
             .join(".steam/steam/steamapps/compatdata/252950/pfx/drive_c")
