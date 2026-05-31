@@ -44,9 +44,10 @@ pub fn run() {
             logout
         ])
         .setup(move |app| {
-            // Disable cursor events on the overlay window
+            // Keep the overlay interactive during auth; click-through
+            // can be toggled via set_click_through once connected.
             if let Some(window) = app.get_webview_window("main") {
-                window.set_ignore_cursor_events(true)?;
+                window.set_ignore_cursor_events(false)?;
             }
             app.emit("bridge-ready", bridge::BridgeReady { ready: true })?;
 
