@@ -3,6 +3,7 @@ pub mod bridge;
 pub mod domain;
 pub mod enrichment;
 pub mod error;
+pub mod local_player;
 pub mod logs;
 pub mod match_tracker;
 pub mod storage;
@@ -12,7 +13,8 @@ use bridge::{
     SharedAuthService, SharedOverlayBackendState, get_overlay_state, logout, set_click_through,
     start_login,
 };
-use domain::InitEvent;
+use domain::{AuthState, InitEvent, LocalPlayerSummary};
+use local_player::{LocalPlayerSummaryLoader, PsyNetLocalPlayerClient};
 use logs::parser::parse_init_line;
 use rocketstats_rlapi::{EpicAuthClient, PsyNetClient, PsyNetConfig};
 use std::path::{Path, PathBuf};
@@ -92,8 +94,11 @@ pub fn run() {
 
                 {
                     let auth_state = rx.borrow().clone();
-                    let mut stored = overlay.auth.write().await;
-                    *stored = auth_state;
+                    {
+                        let mut stored = overlay.auth.write().await;
+                        *stored = auth_state.clone();
+                    }
+                    sync_local_player_summary(&overlay, &auth, &auth_state).await;
                 }
                 let diagnostics = diagnostics_rx.borrow().clone();
                 overlay.replace_auth_diagnostics(diagnostics).await;
@@ -103,6 +108,7 @@ pub fn run() {
 
                 let sync_overlay = overlay.clone();
                 let sync_handle = app_handle.clone();
+                let sync_auth = auth.clone();
                 tauri::async_runtime::spawn(async move {
                     loop {
                         if rx.changed().await.is_err() {
@@ -111,8 +117,9 @@ pub fn run() {
                         let auth_state = rx.borrow().clone();
                         {
                             let mut stored = sync_overlay.auth.write().await;
-                            *stored = auth_state;
+                            *stored = auth_state.clone();
                         }
+                        sync_local_player_summary(&sync_overlay, &sync_auth, &auth_state).await;
                         if let Err(error) =
                             bridge::emit_overlay_state(&sync_handle, &sync_overlay).await
                         {
@@ -162,6 +169,62 @@ pub fn run() {
 
 fn storage_database_path(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("overlay.sqlite3")
+}
+
+async fn sync_local_player_summary(
+    overlay: &SharedOverlayBackendState,
+    auth: &SharedAuthService,
+    auth_state: &AuthState,
+) {
+    let summary = match auth_state {
+        AuthState::Connected {
+            account_id,
+            player_name,
+            ..
+        } => {
+            let rpc = {
+                let svc = auth.lock().await;
+                svc.rpc()
+            };
+            Some(load_local_player_summary(rpc, account_id, player_name.as_deref()).await)
+        }
+        _ => None,
+    };
+
+    let mut local_player = overlay.local_player.write().await;
+    *local_player = summary;
+}
+
+async fn load_local_player_summary(
+    rpc: Option<rocketstats_rlapi::PsyNetRpc>,
+    account_id: &str,
+    fallback_name: Option<&str>,
+) -> LocalPlayerSummary {
+    let fallback = fallback_local_player_summary(account_id, fallback_name);
+    let Some(rpc) = rpc else {
+        return fallback;
+    };
+
+    let loader = LocalPlayerSummaryLoader::new(PsyNetLocalPlayerClient::new(rpc));
+    match loader.load(account_id, fallback_name).await {
+        Ok(summary) => summary,
+        Err(error) => {
+            tracing::warn!("failed to load local player summary: {error}");
+            fallback
+        }
+    }
+}
+
+fn fallback_local_player_summary(
+    account_id: &str,
+    fallback_name: Option<&str>,
+) -> LocalPlayerSummary {
+    LocalPlayerSummary {
+        display_name: fallback_name.unwrap_or(account_id).to_owned(),
+        ranked_2v2_mmr: None,
+        ranked_2v2_tier: None,
+        ranked_2v2_division: None,
+    }
 }
 
 /// Attempts to detect the game version from the Rocket League Launch.log.

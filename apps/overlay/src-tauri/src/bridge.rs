@@ -1,5 +1,7 @@
 use crate::auth::AuthService;
-use crate::domain::{AuthState, MAX_AUTH_DIAGNOSTICS, MatchSession, OverlayState, PlayerCard};
+use crate::domain::{
+    AuthState, LocalPlayerSummary, MAX_AUTH_DIAGNOSTICS, MatchSession, OverlayState, PlayerCard,
+};
 use crate::error::Result;
 use crate::storage::Storage;
 use serde::Serialize;
@@ -14,6 +16,7 @@ const STORAGE_NOT_READY_MESSAGE: &str =
 pub struct OverlayBackendState {
     pub auth: RwLock<AuthState>,
     pub auth_diagnostics: RwLock<Vec<String>>,
+    pub local_player: RwLock<Option<LocalPlayerSummary>>,
     pub match_session: RwLock<MatchSession>,
     pub players: RwLock<Vec<PlayerCard>>,
 }
@@ -23,6 +26,7 @@ impl Default for OverlayBackendState {
         Self {
             auth: RwLock::new(AuthState::Unauthenticated),
             auth_diagnostics: RwLock::new(Vec::new()),
+            local_player: RwLock::new(None),
             match_session: RwLock::new(MatchSession::default()),
             players: RwLock::new(Vec::new()),
         }
@@ -104,6 +108,7 @@ async fn build_overlay_state_from_parts(
     auth: AuthState,
     auth_diagnostics: Vec<String>,
 ) -> OverlayState {
+    let local_player = state.local_player.read().await.clone();
     let match_session = state.match_session.read().await.clone();
     let players = state.players.read().await.clone();
     OverlayState {
@@ -111,6 +116,7 @@ async fn build_overlay_state_from_parts(
         status_message: status_message(&auth, players.len()),
         auth,
         auth_diagnostics,
+        local_player,
         match_session,
         players,
     }
@@ -209,7 +215,7 @@ mod tests {
         start_login, status_message,
     };
     use crate::auth::AuthService;
-    use crate::domain::{AuthState, MAX_AUTH_DIAGNOSTICS, OverlayState};
+    use crate::domain::{AuthState, LocalPlayerSummary, MAX_AUTH_DIAGNOSTICS, OverlayState};
     use crate::storage::Storage;
     use rocketstats_rlapi::{EpicAuthClient, PsyNetClient, PsyNetConfig};
     use std::sync::Arc;
@@ -361,6 +367,31 @@ mod tests {
         assert_eq!(
             overlay.auth_diagnostics.last().map(String::as_str),
             Some("diagnostic 11")
+        );
+    }
+
+    #[tokio::test]
+    async fn build_overlay_state_exposes_local_player_summary() {
+        let state = Arc::new(OverlayBackendState::default());
+        {
+            let mut local_player = state.local_player.write().await;
+            *local_player = Some(LocalPlayerSummary {
+                display_name: "LeSingeDePaille".to_owned(),
+                ranked_2v2_mmr: Some(1234.5),
+                ranked_2v2_tier: Some(17),
+                ranked_2v2_division: Some(2),
+            });
+        }
+
+        let overlay = build_overlay_state(&state).await;
+        assert_eq!(
+            overlay.local_player,
+            Some(LocalPlayerSummary {
+                display_name: "LeSingeDePaille".to_owned(),
+                ranked_2v2_mmr: Some(1234.5),
+                ranked_2v2_tier: Some(17),
+                ranked_2v2_division: Some(2),
+            })
         );
     }
 }

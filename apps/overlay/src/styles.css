@@ -60,6 +60,44 @@ h1 {
   font-size: 13px;
 }
 
+.idle-profile {
+  display: grid;
+  gap: 12px;
+}
+
+.idle-subtitle {
+  margin-top: -2px;
+}
+
+.idle-stats {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.idle-stat {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.idle-stat-label {
+  margin: 0;
+  color: rgba(245, 241, 232, 0.6);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.idle-stat-value {
+  margin: 6px 0 0;
+  color: #f5f1e8;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
 .players {
   display: grid;
   gap: 10px;

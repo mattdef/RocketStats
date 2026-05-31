@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./styles.css";
-import { OverlayState, AuthState, authLabel } from "./state";
+import { OverlayState, AuthState, LocalPlayerSummary, authLabel } from "./state";
+
+type ConnectedAuthState = Extract<AuthState, { Connected: unknown }>;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 let currentState: OverlayState | null = null;
@@ -29,8 +31,13 @@ function renderCurrent(): void {
   render(currentState);
 }
 
-function isConnected(auth: AuthState): boolean {
+function isConnected(auth: AuthState): auth is ConnectedAuthState {
   return typeof auth === "object" && "Connected" in auth;
+}
+
+function connectedAccountName(auth: AuthState): string | null {
+  if (!isConnected(auth)) return null;
+  return auth.Connected.player_name ?? auth.Connected.account_id;
 }
 
 function isAuthInProgress(auth: AuthState): boolean {
@@ -106,6 +113,81 @@ function rankLine(player: OverlayState["players"][number]): string {
   return `MMR ${player.mmr.toFixed(1)} | Tier ${tier} Div ${division}`;
 }
 
+function idleProfile(state: OverlayState): LocalPlayerSummary | null {
+  if (!isConnected(state.auth)) return null;
+  if (state.match_session.phase !== "Idle") return null;
+  if (state.players.length > 0) return null;
+
+  const fallbackName = connectedAccountName(state.auth) ?? "Connected player";
+  return (
+    state.local_player ?? {
+      display_name: fallbackName,
+      ranked_2v2_mmr: null,
+      ranked_2v2_tier: null,
+      ranked_2v2_division: null,
+    }
+  );
+}
+
+function localPlayerMmrLabel(summary: LocalPlayerSummary): string {
+  if (summary.ranked_2v2_mmr === null) return "MMR unavailable";
+  return Math.round(summary.ranked_2v2_mmr).toString();
+}
+
+function localPlayerRankLabel(summary: LocalPlayerSummary): string {
+  const tier = summary.ranked_2v2_tier;
+  if (tier === null) return "Rank unavailable";
+
+  const tierLabels = [
+    "Unranked",
+    "Bronze I",
+    "Bronze II",
+    "Bronze III",
+    "Silver I",
+    "Silver II",
+    "Silver III",
+    "Gold I",
+    "Gold II",
+    "Gold III",
+    "Platinum I",
+    "Platinum II",
+    "Platinum III",
+    "Diamond I",
+    "Diamond II",
+    "Diamond III",
+    "Champion I",
+    "Champion II",
+    "Champion III",
+    "Grand Champion I",
+    "Grand Champion II",
+    "Grand Champion III",
+    "Supersonic Legend",
+  ];
+  const baseLabel = tierLabels[tier] ?? `Tier ${tier}`;
+  if (summary.ranked_2v2_division === null) return baseLabel;
+  return `${baseLabel} - Div ${summary.ranked_2v2_division}`;
+}
+
+function idleProfileSection(summary: LocalPlayerSummary): string {
+  return `
+    <section class="idle-profile">
+      <h1>${summary.display_name}</h1>
+      <p class="muted idle-subtitle">Competitive 2v2 profile</p>
+      <div class="idle-stats">
+        <article class="idle-stat">
+          <p class="idle-stat-label">2v2 MMR</p>
+          <p class="idle-stat-value">${localPlayerMmrLabel(summary)}</p>
+        </article>
+        <article class="idle-stat">
+          <p class="idle-stat-label">2v2 Rank</p>
+          <p class="idle-stat-value">${localPlayerRankLabel(summary)}</p>
+        </article>
+      </div>
+      <button class="auth-btn auth-btn-secondary" id="logout-btn">Disconnect</button>
+    </section>
+  `;
+}
+
 function authSection(auth: AuthState): string {
   if (auth === "Unauthenticated") {
     return `
@@ -157,6 +239,7 @@ function authSection(auth: AuthState): string {
 }
 
 function render(state: OverlayState): void {
+  const idleLocalPlayer = idleProfile(state);
   const players = state.players
     .map(
       (player) => `
@@ -175,12 +258,18 @@ function render(state: OverlayState): void {
     <main class="overlay-shell">
       <section class="panel">
         <p class="eyebrow">RocketStats</p>
-        <h1>${state.status_message}</h1>
-        <p class="muted">${authLabel(state.auth)}</p>
-        <div class="auth-section">${authSection(state.auth)}</div>
+        ${
+          idleLocalPlayer
+            ? idleProfileSection(idleLocalPlayer)
+            : `
+              <h1>${state.status_message}</h1>
+              <p class="muted">${authLabel(state.auth)}</p>
+              <div class="auth-section">${authSection(state.auth)}</div>
+            `
+        }
         ${authDiagnosticsSection(state)}
-        <p class="warning">${state.partial_roster ? "Detected players only. Full lobby is not guaranteed." : ""}</p>
-        <div class="players">${players}</div>
+        <p class="warning">${idleLocalPlayer ? "" : state.partial_roster ? "Detected players only. Full lobby is not guaranteed." : ""}</p>
+        <div class="players">${idleLocalPlayer ? "" : players}</div>
       </section>
     </main>
   `;

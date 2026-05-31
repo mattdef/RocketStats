@@ -36,9 +36,17 @@ export interface MatchSession {
   xp: number | null;
 }
 
+export interface LocalPlayerSummary {
+  display_name: string;
+  ranked_2v2_mmr: number | null;
+  ranked_2v2_tier: number | null;
+  ranked_2v2_division: number | null;
+}
+
 export interface OverlayState {
   auth: AuthState;
   auth_diagnostics: string[];
+  local_player: LocalPlayerSummary | null;
   match_session: MatchSession;
   players: PlayerCard[];
   partial_roster: boolean;
