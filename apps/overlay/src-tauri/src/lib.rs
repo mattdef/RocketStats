@@ -12,8 +12,8 @@ pub mod storage;
 use auth::AuthService;
 use bridge::{
     SharedAuthService, SharedOverlayBackendState, emit_overlay_state, get_overlay_state,
-    get_settings, logout, open_settings_window, save_settings, set_click_through,
-    start_login, toggle_click_through,
+    get_settings, logout, open_settings_window, save_settings, set_click_through, start_login,
+    toggle_click_through,
 };
 use domain::{AuthState, InitEvent, LocalPlayerSummary};
 use enrichment::{PlayerEnrichment, PsyNetSkillClient};
@@ -152,9 +152,7 @@ pub fn run() {
                             *stored = auth_state.clone();
                         }
                         sync_local_player_summary(&sync_overlay, &sync_auth, &auth_state).await;
-                        if let Err(error) =
-                            emit_overlay_state(&sync_handle, &sync_overlay).await
-                        {
+                        if let Err(error) = emit_overlay_state(&sync_handle, &sync_overlay).await {
                             tracing::warn!("failed to emit auth overlay state: {error}");
                         }
                     }
@@ -468,6 +466,16 @@ fn find_launch_log() -> Option<PathBuf> {
     None
 }
 
+fn dirs_next() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from)
+}
+
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("rocketstats_overlay=info"));
+    let _ = fmt().with_env_filter(filter).try_init();
+}
+
 // --- Tests ---
 
 #[cfg(test)]
@@ -509,14 +517,4 @@ mod capability_tests {
             "capability must allow core:event:default directly or through core:default so the frontend can listen for overlay-state"
         );
     }
-}
-
-fn dirs_next() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
-}
-
-fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("rocketstats_overlay=info"));
-    let _ = fmt().with_env_filter(filter).try_init();
 }

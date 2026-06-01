@@ -309,9 +309,9 @@ pub async fn logout<R: tauri::Runtime>(
 #[cfg(test)]
 mod tests {
     use super::{
-        OverlayBackendState, STORAGE_NOT_READY_MESSAGE, build_overlay_state, get_overlay_state,
-        normalize_saved_settings, start_login, status_message, toggled_click_through_state,
-        SETTINGS_UPDATED_EVENT,
+        OverlayBackendState, SETTINGS_UPDATED_EVENT, STORAGE_NOT_READY_MESSAGE,
+        build_overlay_state, get_overlay_state, normalize_saved_settings, start_login,
+        status_message, toggled_click_through_state,
     };
     use crate::auth::AuthService;
     use crate::domain::{AuthState, LocalPlayerSummary, MAX_AUTH_DIAGNOSTICS, OverlayState};
