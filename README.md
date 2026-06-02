@@ -56,6 +56,31 @@ npm install
 npm run build
 ```
 
+## Running
+
+Launch the Tauri overlay in development mode (hot-reload Vite + Rust backend):
+
+```bash
+cd apps/overlay
+npm run tauri:dev
+```
+
+For a release build:
+
+```bash
+cd apps/overlay
+npm run tauri:build
+```
+
+On Linux, AppImage bundling may fail on recent distributions because the bundled
+`linuxdeploy` tool cannot strip newer system libraries. Use the Linux packaging
+script to build only `.deb` and `.rpm` bundles:
+
+```bash
+cd apps/overlay
+npm run tauri:build:linux
+```
+
 ## Current scope
 
 The workspace contains the PsyNet protocol client and a Tauri overlay MVP. The overlay backend provides log parsing, match tracking, player enrichment, and SQLite caching. Background task orchestration (spawning the log watcher, auth flow, and enrichment pipeline) and BakkesMod/injected overlay integration are still to be implemented.
