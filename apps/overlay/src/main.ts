@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./styles.css";
 import { OverlayState, AuthState, LocalPlayerSummary, authLabel } from "./state";
+import { initTheme, applySkin, getCurrentSkinId, setCurrentSkinId, getSkin } from "./theme";
+import { renderSkinSelector, attachSkinSelectorListeners } from "./skin-selector";
 
 type ConnectedAuthState = Extract<AuthState, { Connected: unknown }>;
 
@@ -10,8 +12,34 @@ let currentState: OverlayState | null = null;
 let authActionError: string | null = null;
 let localAuthDiagnostic: string | null = null;
 let overlayPollTimer: number | null = null;
+let settingsOpen = false;
 
 const OVERLAY_POLL_INTERVAL_MS = 1000;
+const tierLabels = [
+  "Unranked",
+  "Bronze I",
+  "Bronze II",
+  "Bronze III",
+  "Silver I",
+  "Silver II",
+  "Silver III",
+  "Gold I",
+  "Gold II",
+  "Gold III",
+  "Platinum I",
+  "Platinum II",
+  "Platinum III",
+  "Diamond I",
+  "Diamond II",
+  "Diamond III",
+  "Champion I",
+  "Champion II",
+  "Champion III",
+  "Grand Champion I",
+  "Grand Champion II",
+  "Grand Champion III",
+  "Supersonic Legend",
+];
 
 if (!app) {
   throw new Error("missing #app root");
@@ -122,68 +150,63 @@ function idleProfile(state: OverlayState): LocalPlayerSummary | null {
   return (
     state.local_player ?? {
       display_name: fallbackName,
+      ranked_1v1_mmr: null,
+      ranked_1v1_tier: null,
+      ranked_1v1_division: null,
       ranked_2v2_mmr: null,
       ranked_2v2_tier: null,
       ranked_2v2_division: null,
+      ranked_3v3_mmr: null,
+      ranked_3v3_tier: null,
+      ranked_3v3_division: null,
     }
   );
 }
 
-function localPlayerMmrLabel(summary: LocalPlayerSummary): string {
-  if (summary.ranked_2v2_mmr === null) return "MMR unavailable";
-  return Math.round(summary.ranked_2v2_mmr).toString();
+function playlistMmrLabel(mmr: number | null): string {
+  if (mmr === null) return "—";
+  return Math.round(mmr).toString();
 }
 
-function localPlayerRankLabel(summary: LocalPlayerSummary): string {
-  const tier = summary.ranked_2v2_tier;
+function playlistRankLabel(tier: number | null, division: number | null): string {
   if (tier === null) return "Rank unavailable";
 
-  const tierLabels = [
-    "Unranked",
-    "Bronze I",
-    "Bronze II",
-    "Bronze III",
-    "Silver I",
-    "Silver II",
-    "Silver III",
-    "Gold I",
-    "Gold II",
-    "Gold III",
-    "Platinum I",
-    "Platinum II",
-    "Platinum III",
-    "Diamond I",
-    "Diamond II",
-    "Diamond III",
-    "Champion I",
-    "Champion II",
-    "Champion III",
-    "Grand Champion I",
-    "Grand Champion II",
-    "Grand Champion III",
-    "Supersonic Legend",
-  ];
   const baseLabel = tierLabels[tier] ?? `Tier ${tier}`;
-  if (summary.ranked_2v2_division === null) return baseLabel;
-  return `${baseLabel} - Div ${summary.ranked_2v2_division}`;
+  if (division === null) return baseLabel;
+  return `${baseLabel} Div ${division}`;
+}
+
+function playlistRow(label: string, mmr: number | null, tier: number | null, division: number | null): string {
+  return `
+    <article class="idle-stat">
+      <p class="idle-stat-label">${label}</p>
+      <p class="idle-stat-value">${playlistMmrLabel(mmr)}</p>
+      <p class="idle-stat-rank">${playlistRankLabel(tier, division)}</p>
+    </article>
+  `;
 }
 
 function idleProfileSection(summary: LocalPlayerSummary): string {
   return `
     <section class="idle-profile">
       <h1>${summary.display_name}</h1>
-      <p class="muted idle-subtitle">Competitive 2v2 profile</p>
+      <p class="muted idle-subtitle">Competitive profiles</p>
       <div class="idle-stats">
-        <article class="idle-stat">
-          <p class="idle-stat-label">2v2 MMR</p>
-          <p class="idle-stat-value">${localPlayerMmrLabel(summary)}</p>
-        </article>
-        <article class="idle-stat">
-          <p class="idle-stat-label">2v2 Rank</p>
-          <p class="idle-stat-value">${localPlayerRankLabel(summary)}</p>
-        </article>
+        ${playlistRow("SOLO", summary.ranked_1v1_mmr, summary.ranked_1v1_tier, summary.ranked_1v1_division)}
+        ${playlistRow("DOUBLES", summary.ranked_2v2_mmr, summary.ranked_2v2_tier, summary.ranked_2v2_division)}
+        ${playlistRow("STANDARD", summary.ranked_3v3_mmr, summary.ranked_3v3_tier, summary.ranked_3v3_division)}
       </div>
       <button class="auth-btn auth-btn-secondary" id="logout-btn">Disconnect</button>
+    </section>
+  `;
+}
+
+function settingsSection(): string {
+  if (!settingsOpen) return "";
+  const currentSkinId = getCurrentSkinId();
+  return `
+    <section class="settings-panel">
+      ${renderSkinSelector(currentSkinId)}
     </section>
   `;
 }
@@ -257,7 +280,10 @@ function render(state: OverlayState): void {
   root.innerHTML = `
     <main class="overlay-shell">
       <section class="panel">
-        <p class="eyebrow">RocketStats</p>
+        <div class="panel-header">
+          <p class="eyebrow">RocketStats</p>
+          <button class="settings-toggle" id="settings-toggle">⚙</button>
+        </div>
         ${
           idleLocalPlayer
             ? idleProfileSection(idleLocalPlayer)
@@ -270,6 +296,7 @@ function render(state: OverlayState): void {
         ${authDiagnosticsSection(state)}
         <p class="warning">${idleLocalPlayer ? "" : state.partial_roster ? "Detected players only. Full lobby is not guaranteed." : ""}</p>
         <div class="players">${idleLocalPlayer ? "" : players}</div>
+        ${settingsSection()}
       </section>
     </main>
   `;
@@ -277,6 +304,7 @@ function render(state: OverlayState): void {
   // Attach event listeners after render
   const loginBtn = document.getElementById("login-btn");
   const logoutBtn = document.getElementById("logout-btn");
+  const settingsToggle = document.getElementById("settings-toggle");
 
   if (loginBtn) {
     loginBtn.addEventListener("click", () => {
@@ -313,9 +341,29 @@ function render(state: OverlayState): void {
         });
     });
   }
+
+  if (settingsToggle) {
+    settingsToggle.addEventListener("click", () => {
+      settingsOpen = !settingsOpen;
+      renderCurrent();
+    });
+  }
+
+  // Skin selector listeners
+  if (settingsOpen) {
+    attachSkinSelectorListeners((skinId: string) => {
+      console.info("[theme] skin selected:", skinId);
+      setCurrentSkinId(skinId);
+      applySkin(getSkin(skinId));
+      renderCurrent();
+    });
+  }
 }
 
 async function boot(): Promise<void> {
+  // Apply stored theme
+  initTheme();
+
   void listen<OverlayState>("overlay-state", (event) => {
     console.info("[auth] overlay-state update", event.payload.auth);
     currentState = event.payload;
