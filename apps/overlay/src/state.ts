@@ -38,9 +38,15 @@ export interface MatchSession {
 
 export interface LocalPlayerSummary {
   display_name: string;
+  ranked_1v1_mmr: number | null;
+  ranked_1v1_tier: number | null;
+  ranked_1v1_division: number | null;
   ranked_2v2_mmr: number | null;
   ranked_2v2_tier: number | null;
   ranked_2v2_division: number | null;
+  ranked_3v3_mmr: number | null;
+  ranked_3v3_tier: number | null;
+  ranked_3v3_division: number | null;
 }
 
 export interface OverlayState {

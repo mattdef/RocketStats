@@ -477,9 +477,15 @@ mod tests {
             let mut local_player = state.local_player.write().await;
             *local_player = Some(LocalPlayerSummary {
                 display_name: "LeSingeDePaille".to_owned(),
+                ranked_1v1_mmr: Some(1111.5),
+                ranked_1v1_tier: Some(14),
+                ranked_1v1_division: Some(4),
                 ranked_2v2_mmr: Some(1234.5),
                 ranked_2v2_tier: Some(17),
                 ranked_2v2_division: Some(2),
+                ranked_3v3_mmr: Some(1357.5),
+                ranked_3v3_tier: Some(16),
+                ranked_3v3_division: Some(1),
             });
         }
 
@@ -488,9 +494,15 @@ mod tests {
             overlay.local_player,
             Some(LocalPlayerSummary {
                 display_name: "LeSingeDePaille".to_owned(),
+                ranked_1v1_mmr: Some(1111.5),
+                ranked_1v1_tier: Some(14),
+                ranked_1v1_division: Some(4),
                 ranked_2v2_mmr: Some(1234.5),
                 ranked_2v2_tier: Some(17),
                 ranked_2v2_division: Some(2),
+                ranked_3v3_mmr: Some(1357.5),
+                ranked_3v3_tier: Some(16),
+                ranked_3v3_division: Some(1),
             })
         );
     }

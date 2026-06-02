@@ -354,9 +354,15 @@ fn fallback_local_player_summary(
 ) -> LocalPlayerSummary {
     LocalPlayerSummary {
         display_name: fallback_name.unwrap_or(account_id).to_owned(),
+        ranked_1v1_mmr: None,
+        ranked_1v1_tier: None,
+        ranked_1v1_division: None,
         ranked_2v2_mmr: None,
         ranked_2v2_tier: None,
         ranked_2v2_division: None,
+        ranked_3v3_mmr: None,
+        ranked_3v3_tier: None,
+        ranked_3v3_division: None,
     }
 }
 

@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 pub const MAX_AUTH_DIAGNOSTICS: usize = 10;
+pub const RANKED_SOLO_PLAYLIST_ID: i32 = 10;
 pub const RANKED_DOUBLES_PLAYLIST_ID: i32 = 11;
+pub const RANKED_STANDARD_PLAYLIST_ID: i32 = 13;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuthState {
@@ -136,9 +138,15 @@ pub struct PlayerCard {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LocalPlayerSummary {
     pub display_name: String,
+    pub ranked_1v1_mmr: Option<f64>,
+    pub ranked_1v1_tier: Option<i32>,
+    pub ranked_1v1_division: Option<i32>,
     pub ranked_2v2_mmr: Option<f64>,
     pub ranked_2v2_tier: Option<i32>,
     pub ranked_2v2_division: Option<i32>,
+    pub ranked_3v3_mmr: Option<f64>,
+    pub ranked_3v3_tier: Option<i32>,
+    pub ranked_3v3_division: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
