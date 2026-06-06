@@ -5,6 +5,7 @@ use crate::domain::{
 use crate::error::Result;
 use crate::settings::Settings;
 use crate::storage::Storage;
+use crate::{SharedLogFile, create_log_file_writer};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -124,14 +125,31 @@ pub async fn save_settings(
     app: AppHandle,
     settings_state: State<'_, Arc<RwLock<Settings>>>,
     settings: Settings,
+    shared_log: State<'_, SharedLogFile>,
 ) -> std::result::Result<Settings, String> {
     let settings = normalize_saved_settings(settings);
+
+    // Check if the app log directory changed before overwriting
+    let log_dir_changed = {
+        let current = settings_state.inner().read().await;
+        current.app_log_dir != settings.app_log_dir
+    };
 
     settings.save().map_err(|error| error.to_string())?;
 
     let mut current = settings_state.inner().write().await;
     *current = settings.clone();
     drop(current);
+
+    // Hot-reload: swap the log file when the directory changes
+    if log_dir_changed {
+        let new_dir = settings.resolved_app_log_dir();
+        let new_file = create_log_file_writer(&new_dir).map_err(|error| {
+            format!("failed to open log file in {}: {error}", new_dir.display())
+        })?;
+        shared_log.swap_file(new_file);
+        tracing::info!(dir = %new_dir.display(), "application log directory updated");
+    }
 
     app.emit(SETTINGS_UPDATED_EVENT, &settings)
         .map_err(|error| error.to_string())?;

@@ -32,16 +32,78 @@ use match_tracker::MatchTracker;
 use rocketstats_rlapi::{EpicAuthClient, PsyNetClient, PsyNetConfig};
 use settings::Settings;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use storage::Storage;
 use tauri::{Emitter, Manager};
 use tokio::sync::{RwLock, mpsc};
+use tracing_subscriber::fmt::writer::MakeWriter;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+
+/// Shared file handle for application log output.
+///
+/// Wraps `Arc<Mutex<Option<File>>>` so the underlying file can be swapped
+/// at runtime when the user changes the log directory in settings.
+#[derive(Clone)]
+pub struct SharedLogFile {
+    inner: std::sync::Arc<std::sync::Mutex<Option<fs::File>>>,
+}
+
+impl SharedLogFile {
+    fn new(file: fs::File) -> Self {
+        Self {
+            inner: std::sync::Arc::new(std::sync::Mutex::new(Some(file))),
+        }
+    }
+
+    /// Create a noop log file (writes are silently discarded).
+    fn new_noop() -> Self {
+        Self {
+            inner: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        }
+    }
+
+    /// Replace the current log file. Returns the old file handle (if any).
+    pub(crate) fn swap_file(&self, new_file: fs::File) -> Option<fs::File> {
+        let mut guard = self.inner.lock().expect("log file mutex poisoned");
+        guard.replace(new_file)
+    }
+}
+
+impl<'a> MakeWriter<'a> for SharedLogFile {
+    type Writer = SharedLogFileWriter<'a>;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        SharedLogFileWriter {
+            guard: self.inner.lock().expect("log file mutex poisoned"),
+        }
+    }
+}
+
+pub struct SharedLogFileWriter<'a> {
+    guard: std::sync::MutexGuard<'a, Option<fs::File>>,
+}
+
+impl io::Write for SharedLogFileWriter<'_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self.guard.as_mut() {
+            Some(file) => file.write(buf),
+            None => Ok(buf.len()), // no-op fallback
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self.guard.as_mut() {
+            Some(file) => file.flush(),
+            None => Ok(()),
+        }
+    }
+}
 
 pub fn run() {
     let initial_settings = Settings::load();
-    init_tracing(initial_settings.resolved_app_log_dir());
+    let shared_log_file = init_tracing(initial_settings.resolved_app_log_dir());
 
     let overlay_state: SharedOverlayBackendState = Arc::new(bridge::OverlayBackendState::default());
     let settings: Arc<RwLock<Settings>> = Arc::new(RwLock::new(initial_settings.clone()));
@@ -58,6 +120,7 @@ pub fn run() {
         .manage(overlay_state.clone())
         .manage(auth_service.clone())
         .manage(settings.clone())
+        .manage(shared_log_file)
         .invoke_handler(tauri::generate_handler![
             get_overlay_state,
             get_settings,
@@ -477,38 +540,50 @@ fn dirs_next() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
-fn init_tracing(log_dir: PathBuf) {
+fn init_tracing(log_dir: PathBuf) -> SharedLogFile {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("rocketstats_overlay=info"));
 
     let stdout_layer = fmt::layer();
-    let subscriber = tracing_subscriber::registry()
-        .with(filter)
-        .with(stdout_layer);
 
-    let result = match create_log_file_writer(&log_dir) {
-        Ok(file) => subscriber
-            .with(
-                fmt::layer()
-                    .with_ansi(false)
-                    .with_writer(std::sync::Mutex::new(file)),
-            )
-            .try_init(),
+    match create_log_file_writer(&log_dir) {
+        Ok(file) => {
+            let shared = SharedLogFile::new(file);
+            let writer = shared.clone();
+            let file_layer = fmt::layer().with_ansi(false).with_writer(writer);
+
+            let subscriber = tracing_subscriber::registry()
+                .with(filter)
+                .with(stdout_layer)
+                .with(file_layer);
+            if let Err(error) = subscriber.try_init() {
+                eprintln!("failed to initialize RocketStats tracing subscriber: {error}");
+            }
+            shared
+        }
         Err(error) => {
             eprintln!(
                 "failed to initialize RocketStats file logging at {}: {error}",
                 log_dir.display()
             );
-            subscriber.try_init()
-        }
-    };
+            // Fallback: stdout-only, no-op shared log
+            let shared = SharedLogFile::new_noop();
+            let writer = shared.clone();
+            let noop_layer = fmt::layer().with_ansi(false).with_writer(writer);
 
-    if let Err(error) = result {
-        eprintln!("failed to initialize RocketStats tracing subscriber: {error}");
+            let subscriber = tracing_subscriber::registry()
+                .with(filter)
+                .with(stdout_layer)
+                .with(noop_layer);
+            if let Err(error) = subscriber.try_init() {
+                eprintln!("failed to initialize RocketStats tracing subscriber: {error}");
+            }
+            shared
+        }
     }
 }
 
-fn create_log_file_writer(log_dir: &Path) -> std::io::Result<fs::File> {
+pub(crate) fn create_log_file_writer(log_dir: &Path) -> std::io::Result<fs::File> {
     fs::create_dir_all(log_dir)?;
     fs::OpenOptions::new()
         .create(true)
