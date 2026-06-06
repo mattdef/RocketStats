@@ -4,6 +4,7 @@ import "./styles.css";
 
 interface Settings {
   log_path: string;
+  app_log_dir: string;
   opacity: number;
   always_on_top: boolean;
   click_through: boolean;
@@ -14,6 +15,7 @@ type StatusState = "idle" | "success" | "error";
 interface SettingsForm {
   form: HTMLFormElement;
   logPath: HTMLInputElement;
+  appLogDir: HTMLInputElement;
   opacity: HTMLInputElement;
   opacityValue: HTMLOutputElement;
   alwaysOnTop: HTMLInputElement;
@@ -273,12 +275,23 @@ function render(): SettingsForm {
       <section class="panel settings-panel">
         <p class="eyebrow">RocketStats</p>
         <h1>Overlay settings</h1>
-        <p class="muted">Update the overlay path, opacity, and window behavior.</p>
+        <p class="muted">Update the overlay path, app log directory, opacity, and window behavior.</p>
         <form id="settings-form" class="settings-form">
           <div class="field-group">
             <label class="field-label" for="log-path">Log path</label>
             <input
               id="log-path"
+              class="text-input"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="app-log-dir">Application log directory</label>
+            <input
+              id="app-log-dir"
               class="text-input"
               type="text"
               autocomplete="off"
@@ -333,6 +346,7 @@ function render(): SettingsForm {
   return {
     form: requireElement<HTMLFormElement>("#settings-form"),
     logPath: requireElement<HTMLInputElement>("#log-path"),
+    appLogDir: requireElement<HTMLInputElement>("#app-log-dir"),
     opacity: requireElement<HTMLInputElement>("#opacity"),
     opacityValue: requireElement<HTMLOutputElement>("#opacity-value"),
     alwaysOnTop: requireElement<HTMLInputElement>("#always-on-top"),
@@ -359,6 +373,7 @@ function formatOpacity(opacity: number): string {
 
 function applySettings(settings: Settings): void {
   form.logPath.value = settings.log_path;
+  form.appLogDir.value = settings.app_log_dir;
   form.opacity.value = settings.opacity.toFixed(2);
   form.opacityValue.textContent = formatOpacity(settings.opacity);
   form.alwaysOnTop.checked = settings.always_on_top;
@@ -370,6 +385,7 @@ function readSettingsFromForm(): Settings {
 
   return {
     log_path: form.logPath.value,
+    app_log_dir: form.appLogDir.value,
     opacity: Number.isFinite(opacity) ? opacity : DEFAULT_OPACITY,
     always_on_top: form.alwaysOnTop.checked,
     click_through: form.clickThrough.checked,
@@ -378,6 +394,7 @@ function readSettingsFromForm(): Settings {
 
 function setBusy(isBusy: boolean): void {
   form.logPath.disabled = isBusy;
+  form.appLogDir.disabled = isBusy;
   form.opacity.disabled = isBusy;
   form.alwaysOnTop.disabled = isBusy;
   form.clickThrough.disabled = isBusy;

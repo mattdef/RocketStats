@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 const DEFAULT_LOG_PATH: &str = "~/.local/share/RocketStats/Launch.log";
+const DEFAULT_APP_LOG_DIR: &str = "~/.local/share/RocketStats/logs";
 const SETTINGS_PATH: &str = "~/.config/rocketstats/settings.json";
 const DEFAULT_OPACITY: f64 = 0.9;
 
@@ -10,6 +11,7 @@ const DEFAULT_OPACITY: f64 = 0.9;
 #[serde(default)]
 pub struct Settings {
     pub log_path: String,
+    pub app_log_dir: String,
     pub opacity: f64,
     pub always_on_top: bool,
     pub click_through: bool,
@@ -19,6 +21,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             log_path: DEFAULT_LOG_PATH.to_owned(),
+            app_log_dir: DEFAULT_APP_LOG_DIR.to_owned(),
             opacity: DEFAULT_OPACITY,
             always_on_top: true,
             click_through: true,
@@ -37,6 +40,10 @@ impl Settings {
 
     pub fn resolved_log_path(&self) -> PathBuf {
         expand_home(&self.log_path)
+    }
+
+    pub fn resolved_app_log_dir(&self) -> PathBuf {
+        expand_home(&self.app_log_dir)
     }
 
     fn load_from_path(path: PathBuf) -> Self {
@@ -104,6 +111,7 @@ mod tests {
             Settings::default(),
             Settings {
                 log_path: DEFAULT_LOG_PATH.to_owned(),
+                app_log_dir: DEFAULT_APP_LOG_DIR.to_owned(),
                 opacity: DEFAULT_OPACITY,
                 always_on_top: true,
                 click_through: true,
@@ -126,6 +134,7 @@ mod tests {
             &path,
             r#"{
                 "log_path": "~/custom.log",
+                "app_log_dir": "~/custom-app-logs",
                 "opacity": 4.2,
                 "always_on_top": false,
                 "click_through": false
@@ -136,6 +145,7 @@ mod tests {
         let settings = Settings::load_from_path(path);
 
         assert_eq!(settings.log_path, "~/custom.log");
+        assert_eq!(settings.app_log_dir, "~/custom-app-logs");
         assert_eq!(settings.opacity, 1.0);
         assert!(!settings.always_on_top);
         assert!(!settings.click_through);
@@ -147,6 +157,7 @@ mod tests {
         let path = dir.path().join("rocketstats/settings.json");
         let settings = Settings {
             log_path: "~/saved.log".to_owned(),
+            app_log_dir: "~/saved-app-logs".to_owned(),
             opacity: 0.0,
             always_on_top: false,
             click_through: false,
@@ -156,6 +167,7 @@ mod tests {
 
         let saved = Settings::load_from_path(path);
         assert_eq!(saved.log_path, "~/saved.log");
+        assert_eq!(saved.app_log_dir, "~/saved-app-logs");
         assert_eq!(saved.opacity, 0.1);
         assert!(!saved.always_on_top);
         assert!(!saved.click_through);

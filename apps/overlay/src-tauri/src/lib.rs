@@ -31,18 +31,19 @@ use logs::watcher::{LogWatcherConfig, watch_log};
 use match_tracker::MatchTracker;
 use rocketstats_rlapi::{EpicAuthClient, PsyNetClient, PsyNetConfig};
 use settings::Settings;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use storage::Storage;
 use tauri::{Emitter, Manager};
 use tokio::sync::{RwLock, mpsc};
-use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 pub fn run() {
-    init_tracing();
+    let initial_settings = Settings::load();
+    init_tracing(initial_settings.resolved_app_log_dir());
 
     let overlay_state: SharedOverlayBackendState = Arc::new(bridge::OverlayBackendState::default());
-    let initial_settings = Settings::load();
     let settings: Arc<RwLock<Settings>> = Arc::new(RwLock::new(initial_settings.clone()));
 
     // Detect game version from Launch.log (non-blocking best-effort)
@@ -476,10 +477,43 @@ fn dirs_next() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
-fn init_tracing() {
+fn init_tracing(log_dir: PathBuf) {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("rocketstats_overlay=info"));
-    let _ = fmt().with_env_filter(filter).try_init();
+
+    let stdout_layer = fmt::layer();
+    let subscriber = tracing_subscriber::registry()
+        .with(filter)
+        .with(stdout_layer);
+
+    let result = match create_log_file_writer(&log_dir) {
+        Ok(file) => subscriber
+            .with(
+                fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(std::sync::Mutex::new(file)),
+            )
+            .try_init(),
+        Err(error) => {
+            eprintln!(
+                "failed to initialize RocketStats file logging at {}: {error}",
+                log_dir.display()
+            );
+            subscriber.try_init()
+        }
+    };
+
+    if let Err(error) = result {
+        eprintln!("failed to initialize RocketStats tracing subscriber: {error}");
+    }
+}
+
+fn create_log_file_writer(log_dir: &Path) -> std::io::Result<fs::File> {
+    fs::create_dir_all(log_dir)?;
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("rocketstats.log"))
 }
 
 // --- Tests ---
